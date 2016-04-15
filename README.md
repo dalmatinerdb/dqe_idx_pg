@@ -1,7 +1,7 @@
 dqe_idx_pg
-=====
+==========
 
-An OTP library
+Dalmatiner query engine indexer module for Postgres.
 
 Build
 -----

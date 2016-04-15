@@ -3,22 +3,24 @@
 
 -define(TABLE, "tags").
 -define(SEP, <<".">>).
+
 %%====================================================================
 %% API
 %%====================================================================
 lookup_query({Bucket, Metric}) ->
     Query = ["select distinct bucket, metric ",
                 "from ", ?TABLE, " ",
-                "where bucket = $1 and metric = $2"],
+                "where tag_bucket = $1 and tag_metric = $2"],
     Values = [Bucket, decode_metric(Metric)],
     {ok, Query, Values};
 lookup_query({Bucket, Metric, Where}) ->
     Query = ["select distinct bucket, metric ",
              "from ", ?TABLE, " ",
-             "where bucket = $1 and metric = $2 and "],
+             "where tag_bucket = $1 and tag_metric = $2 and "],
     {_N, TagPairs, TagPredicate} = unparse(Where),
     Values = [Bucket, decode_metric(Metric) | (TagPairs)],
     {ok, Query ++ TagPredicate, Values}.
+
 
 %%====================================================================
 %% Internal functions
