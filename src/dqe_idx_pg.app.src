@@ -1,5 +1,5 @@
 {application, dqe_idx_pg,
- [{description, "An OTP library"},
+ [{description, "Postgresql backend for DFE indexinge"},
   {vsn, "0.1.0"},
   {registered, []},
   {applications,
@@ -19,7 +19,7 @@
                     ]}
         ]},
   {modules, []},
-  {maintainers, []},
-  {licenses, []},
-  {links, []}
+  {maintainers, ["Heinz N. Gies"]},
+  {licenses, ["MIT"]},
+  {links, [{github, "https://github.com/dalmatinerdb/dqe_idx_pg"}]}
  ]}.
