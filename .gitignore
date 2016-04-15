@@ -9,7 +9,10 @@ _*
 .erlang.cookie
 ebin
 log
+.eqc
 erl_crash.dump
 .rebar
 logs
 _build
+.eqc-info
+current_counterexample.eqc

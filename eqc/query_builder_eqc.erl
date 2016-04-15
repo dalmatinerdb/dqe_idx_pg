@@ -10,45 +10,43 @@
 %%%-------------------------------------------------------------------
 
 bucket() ->
-    ?LAZY(oneof([<<"bucket1">>, 
-                <<"bucket2">>, 
+    ?LAZY(oneof([<<"bucket1">>,
+                <<"bucket2">>,
                 <<"bucket3">>])).
 
 metric() ->
-    ?LAZY(oneof([[<<"base">>, <<"cpu">>], 
+    ?LAZY(oneof([[<<"base">>, <<"cpu">>],
                  [<<"bytes">>, <<"sent">>]])).
 
 tag() ->
-    ?LAZY(oneof([{<<"direction">>, <<"in">>}, 
+    ?LAZY(oneof([{<<"direction">>, <<"in">>},
                  {<<"direction">>, <<"out">>},
                  {<<"host">>, <<"web1">>},
                  {<<"host">>, <<"web2">>}])).
 
-where(_Gen, 0) -> tag();
-where(Gen, Size) ->
-    ?LAZY(oneof([where(Gen,0),
-                 {'and', where(Gen, Size - 1), where(Gen, Size - 1)},
-                 {'or', where(Gen, Size - 1), where(Gen, Size - 1)}
+where() ->
+    ?SIZED(Size, where(Size)).
+
+where(0) -> tag();
+where(Size) ->
+    ?LAZY(oneof([where(0),
+                 {'and', where(Size - 1), where(Size - 1)},
+                 {'or', where(Size - 1), where(Size - 1)}
                 ])).
 
-query(Gen, Size) ->
+query() ->
     oneof([{bucket(), metric()},
-           {bucket(), metric(), where(Gen, Size)}]).
+           {bucket(), metric(), where()}]).
 
 %%%-------------------------------------------------------------------
 %%% Properties
 %%%-------------------------------------------------------------------
 prop_tags() ->
     ?FORALL({Query}, {query()},
-            {ok, C} = dqe_idx_pg:connect(),
-            {ok, QueryStr, Values} = query_builder:lookup_query(Query),
-            {Res, _} = 
-
-            dqe_idx:close(C))
-            FailMsg = io:format("Query: ~p not parseable, for input: ~p 
-                                because: ~p~n", [QueryStr, Query, R]),
-            ?WHENFAIL(FailMsg, Res == ok)
-
-
-
- 
+            begin
+                {ok, C} = dqe_idx_pg:connect(),
+                {ok, QueryStr, _Values} = query_builder:lookup_query(Query),
+                {Res, _} = epgsql:parse(C, QueryStr),
+                dqe_idx_pg:close(C),
+                Res == ok
+            end).
