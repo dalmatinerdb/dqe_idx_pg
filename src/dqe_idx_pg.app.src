@@ -6,9 +6,17 @@
    [kernel,
     stdlib
    ]},
-  {env,[]},
+  {env, [
+         {database, [
+                     {host, "localhost"},
+                     {database, "metric_metadata"},
+                     {table, "tags"},
+                     {port, 5432},
+                     {user, "ddb"},
+                     {password, "ddb"}
+                    ]}
+        ]},
   {modules, []},
-
   {maintainers, []},
   {licenses, []},
   {links, []}
