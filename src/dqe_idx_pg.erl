@@ -2,32 +2,89 @@
 -behaviour(dqe_idx).
 
 %% API exports
--export([lookup/1, connect/0, close/1]).
-
-%% TODO Configurable values
--define(HOST, "localhost").
--define(PORT, 5432).
--define(USER, "ddb").
--define(PASSWORD, "ddb").
--define(DATABASE, "metric_metadata").
+-export([lookup/1,
+         add/4,
+         add/5,
+         add/6,
+         delete/6
+         %%connect/0, close/1
+        ]).
 
 %%====================================================================
 %% API functions
 %%====================================================================
 
 lookup(Query) ->
-    {ok, Query, Values} = query_builder:lookup_query(Query),
-    {ok, C} = connect(),
-    {ok, _Cols, Rows} = epgsql:equery(C, Query, Values),
-    close(C),
+    {ok, Q, Vs} = query_builder:lookup_query(Query),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     Rows.
 
-connect() ->
-    epgsql:connect(?HOST, ?USER, ?PASSWORD, [{database, ?DATABASE},
-                                             {timeout, 4000}]).
+-spec add(Collection::binary(),
+          Metric::binary(),
+          Bucket::binary(),
+          Key::binary()) ->
+                 {ok, MetricIdx::non_neg_integer()} |
+                 {error, Error::term()}.
 
-close(C) ->
-    epgsql:close(C).
+add(Collection, Metric, Bucket, Key) ->
+    Q = "SELECT add_metric($1, $2, $3, $4)",
+    Vs = [Collection, Metric, Bucket, Key],
+    case pgapp:equery(Q, Vs) of
+        {ok,[_],[{ID}]} ->
+            {ok, ID};
+        E ->
+            E
+    end.
+
+-spec add(Collection::binary(),
+          Metric::binary(),
+          Bucket::binary(),
+          Key::binary(),
+          TagName::binary(),
+          TagValue::binary()) ->
+                 {ok, {MetricIdx::non_neg_integer(), TagIdx::non_neg_integer()}}|
+                 {error, Error::term()}.
+
+
+
+add(Collection, Metric, Bucket, Key, []) ->
+    add(Collection, Metric, Bucket, Key);
+
+add(Collection, Metric, Bucket, Key, NVs) ->
+    {ok, MID} = add(Collection, Metric, Bucket, Key),
+    {Q, Vs} = query_builder:add_tags(MID, NVs),
+    case pgapp:equery(Q, Vs) of
+        {ok,_,_} ->
+            {ok, MID};
+        E ->
+            E
+    end.
+
+add(Collection, Metric, Bucket, Key, Name, Value) ->
+    add(Collection, Metric, Bucket, Key, [{Name, Value}]).
+
+delete(Collection, Metric, Bucket, Key) ->
+    Q = "DELETE FROM metrics WHERE collection = $1 " ++
+        "metric = $2 AND bucket = $3 AND key = $4",
+    Vs = [Collection, Metric, Bucket, Key],
+    case pgapp:equery(Q, Vs) of
+        {ok,[_],[{ID}]} ->
+            {ok, ID};
+        E ->
+            E
+    end.
+
+-spec delete(Collection::binary(),
+          Metric::binary(),
+          Bucket::binary(),
+          Key::binary(),
+          TagName::binary(),
+          TagValue::binary()) ->
+    ok |
+    {error, Error::term()}.
+
+delete(Bucket, Metric, LookupBucket, LookupMetric, TagKey, TagValue) ->
+    io:format("~p~n", [[Bucket, Metric, LookupBucket, LookupMetric, TagKey, TagValue]]).
 
 %%====================================================================
 %% Internal functions

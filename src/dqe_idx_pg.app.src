@@ -4,7 +4,9 @@
   {registered, []},
   {applications,
    [kernel,
-    stdlib
+    stdlib,
+    dqe_idx,
+    pgapp
    ]},
   {env, [
          {database, [

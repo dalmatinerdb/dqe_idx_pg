@@ -9,7 +9,7 @@
  {<<"erlware_commons">>,{pkg,<<"erlware_commons">>,<<"0.18.0">>},2},
  {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.7">>},1},
  {<<"lager">>,{pkg,<<"lager">>,<<"2.1.1">>},0},
- {<<"mmath">>,{pkg,<<"mmath">>,<<"0.1.16">>},0},
+ {<<"mmath">>,{pkg,<<"mmath">>,<<"0.1.15">>},1},
  {<<"pgapp">>,{pkg,<<"pgapp">>,<<"0.0.1">>},0},
  {<<"poolboy">>,{pkg,<<"poolboy">>,<<"1.5.1">>},1},
  {<<"qdate">>,{pkg,<<"qdate">>,<<"0.4.2">>},1}].

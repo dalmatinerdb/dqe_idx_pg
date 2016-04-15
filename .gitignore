@@ -16,3 +16,4 @@ logs
 _build
 .eqc-info
 current_counterexample.eqc
+rebar3.crashdump
