@@ -25,7 +25,7 @@ lookup(Query) ->
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:lookup] Query too ~pus: ~s <- ~p",
-                [erlang:system_time() - T0, Q, Vs]),
+                [(erlang:system_time() - T0)/1000, Q, Vs]),
     {ok, Rows}.
 
 expand(_Bucket, _Glob) ->
@@ -45,12 +45,12 @@ add(Collection, Metric, Bucket, Key) ->
     case pgapp:equery(Q, Vs) of
         {ok,[_],[{ID}]} ->
             lager:debug("[dqe_idx:pg:add/4] Query too ~pus: ~s <- ~p",
-                        [erlang:system_time() - T0, Q, Vs]),
+                        [(erlang:system_time() - T0)/1000, Q, Vs]),
 
             {ok, ID};
         E ->
             lager:info("[dqe_idx:pg:add/4] Query failed after ~pus: ~s <- ~p",
-                       [erlang:system_time() - T0, Q, Vs]),
+                       [(erlang:system_time() - T0)/1000, Q, Vs]),
             E
     end.
 
@@ -75,11 +75,11 @@ add(Collection, Metric, Bucket, Key, NVs) ->
     case pgapp:equery(Q, Vs) of
         {ok,_,_} ->
             lager:debug("[dqe_idx:pg:add/5] Query too ~pus: ~s <- ~p",
-                        [erlang:system_time() - T0, Q, Vs]),
+                        [(erlang:system_time() - T0)/1000, Q, Vs]),
             {ok, MID};
         E ->
             lager:info("[dqe_idx:pg:add/5] Query failed after ~pus: ~s <- ~p",
-                       [erlang:system_time() - T0, Q, Vs]),
+                       [(erlang:system_time() - T0)/1000, Q, Vs]),
             E
     end.
 
@@ -94,11 +94,11 @@ delete(Collection, Metric, Bucket, Key) ->
     case pgapp:equery(Q, Vs) of
         {ok,[_],[{ID}]} ->
             lager:debug("[dqe_idx:pg:delete/4] Query too ~pus: ~s <- ~p",
-                        [erlang:system_time() - T0, Q, Vs]),
+                        [(erlang:system_time() - T0)/1000, Q, Vs]),
             {ok, ID};
         E ->
             lager:info("[dqe_idx:pg:delete/4] Query failed after ~pus: ~s <- ~p",
-                       [erlang:system_time() - T0, Q, Vs]),
+                       [(erlang:system_time() - T0)/1000, Q, Vs]),
             E
     end.
 
