@@ -7,6 +7,11 @@
 %%====================================================================
 %% API
 %%====================================================================
+
+lookup_query({Collection, Metric}) when is_list(Metric) ->
+    lookup_query({Collection, dproto:metric_from_list(Metric)});
+lookup_query({Collection, Metric, Where}) when is_list(Metric) ->
+    lookup_query({Collection, dproto:metric_from_list(Metric), Where});
 lookup_query({Collection, Metric}) ->
     Query = ["SELECT DISTINCT bucket, key ",
              "FROM ", ?METRIC_TABLE, " ",
