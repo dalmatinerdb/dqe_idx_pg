@@ -1,25 +1,15 @@
-{application, dqe_idx_pg,
- [{description, "Postgresql backend for DFE indexinge"},
-  {vsn, "0.1.0"},
-  {registered, []},
-  {applications,
-   [kernel,
-    stdlib,
-    dqe_idx,
-    pgapp
-   ]},
-  {env, [
-         {database, [
-                     {host, "localhost"},
-                     {database, "metric_metadata"},
-                     {table, "tags"},
-                     {port, 5432},
-                     {user, "ddb"},
-                     {password, "ddb"}
-                    ]}
-        ]},
-  {modules, []},
-  {maintainers, ["Heinz N. Gies"]},
-  {licenses, ["MIT"]},
-  {links, [{github, "https://github.com/dalmatinerdb/dqe_idx_pg"}]}
- ]}.
+{application,dqe_idx_pg,
+             [{description,"Postgresql backend for DFE indexinge"},
+              {vsn,"0.1.1"},
+              {registered,[]},
+              {applications,[kernel,stdlib,dqe_idx,pgapp]},
+              {env,[{database,[{host,"localhost"},
+                               {database,"metric_metadata"},
+                               {table,"tags"},
+                               {port,5432},
+                               {user,"ddb"},
+                               {password,"ddb"}]}]},
+              {modules,[]},
+              {maintainers,["Heinz N. Gies"]},
+              {licenses,["MIT"]},
+              {links,[{github,"https://github.com/dalmatinerdb/dqe_idx_pg"}]}]}.
