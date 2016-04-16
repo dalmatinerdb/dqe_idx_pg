@@ -22,7 +22,10 @@ init() ->
 
 lookup(Query) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query),
+    T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:lookup] Query too ~pus: ~s <- ~p",
+                [erlang:system_time() - T0, Q, Vs]),
     {ok, Rows}.
 
 expand(_Bucket, _Glob) ->
@@ -38,10 +41,16 @@ expand(_Bucket, _Glob) ->
 add(Collection, Metric, Bucket, Key) ->
     Q = "SELECT add_metric($1, $2, $3, $4)",
     Vs = [Collection, Metric, Bucket, Key],
+    T0 = erlang:system_time(),
     case pgapp:equery(Q, Vs) of
         {ok,[_],[{ID}]} ->
+            lager:debug("[dqe_idx:pg:add/4] Query too ~pus: ~s <- ~p",
+                        [erlang:system_time() - T0, Q, Vs]),
+
             {ok, ID};
         E ->
+            lager:info("[dqe_idx:pg:add/4] Query failed after ~pus: ~s <- ~p",
+                       [erlang:system_time() - T0, Q, Vs]),
             E
     end.
 
@@ -62,10 +71,15 @@ add(Collection, Metric, Bucket, Key, []) ->
 add(Collection, Metric, Bucket, Key, NVs) ->
     {ok, MID} = add(Collection, Metric, Bucket, Key),
     {Q, Vs} = query_builder:add_tags(MID, NVs),
+    T0 = erlang:system_time(),
     case pgapp:equery(Q, Vs) of
         {ok,_,_} ->
+            lager:debug("[dqe_idx:pg:add/5] Query too ~pus: ~s <- ~p",
+                        [erlang:system_time() - T0, Q, Vs]),
             {ok, MID};
         E ->
+            lager:info("[dqe_idx:pg:add/5] Query failed after ~pus: ~s <- ~p",
+                       [erlang:system_time() - T0, Q, Vs]),
             E
     end.
 
@@ -76,10 +90,15 @@ delete(Collection, Metric, Bucket, Key) ->
     Q = "DELETE FROM metrics WHERE collection = $1 " ++
         "metric = $2 AND bucket = $3 AND key = $4",
     Vs = [Collection, Metric, Bucket, Key],
+    T0 = erlang:system_time(),
     case pgapp:equery(Q, Vs) of
         {ok,[_],[{ID}]} ->
+            lager:debug("[dqe_idx:pg:delete/4] Query too ~pus: ~s <- ~p",
+                        [erlang:system_time() - T0, Q, Vs]),
             {ok, ID};
         E ->
+            lager:info("[dqe_idx:pg:delete/4] Query failed after ~pus: ~s <- ~p",
+                       [erlang:system_time() - T0, Q, Vs]),
             E
     end.
 
