@@ -14,7 +14,7 @@
 init() ->
     Opts = [size, database, username, password],
     Opts1 = [{O, application:get_env(dqe_idx_pg, O, undefined)}
-             || I <- Opts],
+             || O <- Opts],
     {ok, {Host, Port}} = application:get_env(dqe_idx_pg, host),
     pgapp:connect([{host, Host}, {port, Port} | Opts1]).
 
