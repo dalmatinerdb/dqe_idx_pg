@@ -1,0 +1,26 @@
+%% -*- erlang -*-
+
+%% @doc The TCP endpoint for the backend server.
+{mapping, "idx.pg.backend", "dqe_idx_pg.server",
+ [{default, {"127.0.0.1", 5432}},
+  {datatype, ip}]}.
+
+%% @doc Initial number of conneciton pool workers
+{mapping, "idx.pg.size", "dqe_idx_pg.size",
+ [{default, 20},
+  {datatype, integer}]}.
+
+%% @doc Initial number of conneciton pool workers
+{mapping, "idx.pg.database", "dqe_idx_pg.database",
+ [{default, "metric_metadata"},
+  {datatype, string}]}.
+
+%% @doc Username for the conection
+{mapping, "idx.pg.username", "dqe_idx_pg.username",
+ [{default, "ddb"},
+  {datatype, string}]}.
+
+%% @doc Password for the conection
+{mapping, "idx.pg.password", "dqe_idx_pg.password",
+ [{default, "ddb"},
+  {datatype, string}]}.
