@@ -25,7 +25,7 @@ init() ->
 lookup(Query) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
-    Rows.
+    {ok, Rows}.
 
 -spec add(Collection::binary(),
           Metric::binary(),
