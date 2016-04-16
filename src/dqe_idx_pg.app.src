@@ -1,6 +1,6 @@
 {application,dqe_idx_pg,
              [{description,"Postgresql backend for DFE indexinge"},
-              {vsn,"0.1.7"},
+              {vsn,"0.1.8"},
               {registered,[]},
               {applications,[kernel,stdlib,dqe_idx,pgapp]},
               {env,[{database,[{host,"localhost"},

@@ -2,14 +2,15 @@
 -behaviour(dqe_idx).
 
 %% API exports
--export([lookup/1,
-         add/4,
-         add/5,
-         add/6,
-         delete/6,
-         delete/4,
-         init/0
+-export([
+         init/0, lookup/1, expand/2,
+         add/4, add/5, add/6,
+         delete/4, delete/5, delete/6
         ]).
+
+%%====================================================================
+%% API functions
+%%====================================================================
 
 init() ->
     Opts = [size, database, username, password],
@@ -18,14 +19,14 @@ init() ->
     {ok, {Host, Port}} = application:get_env(dqe_idx_pg, server),
     pgapp:connect([{host, Host}, {port, Port} | Opts1]).
 
-%%====================================================================
-%% API functions
-%%====================================================================
 
 lookup(Query) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     {ok, Rows}.
+
+expand(_Bucket, _Glob) ->
+    {error, not_implemented}.
 
 -spec add(Collection::binary(),
           Metric::binary(),
@@ -82,6 +83,9 @@ delete(Collection, Metric, Bucket, Key) ->
             E
     end.
 
+delete(_Bucket, _Metric, _LookupBucket, _LookupMetric, _Tags) ->
+    {error, not_implemented}.
+
 -spec delete(Collection::binary(),
           Metric::binary(),
           Bucket::binary(),
@@ -91,8 +95,8 @@ delete(Collection, Metric, Bucket, Key) ->
     ok |
     {error, Error::term()}.
 
-delete(Bucket, Metric, LookupBucket, LookupMetric, TagKey, TagValue) ->
-    io:format("~p~n", [[Bucket, Metric, LookupBucket, LookupMetric, TagKey, TagValue]]).
+delete(_Bucket, _Metric, _LookupBucket, _LookupMetric, _TagKey, _TagValue) ->
+    {error, not_implemented}.
 
 %%====================================================================
 %% Internal functions
