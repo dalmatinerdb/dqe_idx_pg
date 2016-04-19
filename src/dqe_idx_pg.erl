@@ -4,8 +4,8 @@
 %% API exports
 -export([
          init/0, lookup/1, expand/2,
-         add/4, add/5, add/6,
-         delete/4, delete/5, delete/6
+         add/4, add/5, add/7,
+         delete/4, delete/5, delete/7
         ]).
 
 %%====================================================================
@@ -54,17 +54,6 @@ add(Collection, Metric, Bucket, Key) ->
             E
     end.
 
--spec add(Collection::binary(),
-          Metric::binary(),
-          Bucket::binary(),
-          Key::binary(),
-          TagName::binary(),
-          TagValue::binary()) ->
-                 {ok, {MetricIdx::non_neg_integer(), TagIdx::non_neg_integer()}}|
-                 {error, Error::term()}.
-
-
-
 add(Collection, Metric, Bucket, Key, []) ->
     add(Collection, Metric, Bucket, Key);
 
@@ -83,8 +72,18 @@ add(Collection, Metric, Bucket, Key, NVs) ->
             E
     end.
 
-add(Collection, Metric, Bucket, Key, Name, Value) ->
-    add(Collection, Metric, Bucket, Key, [{Name, Value}]).
+-spec add(Collection::binary(),
+          Metric::binary(),
+          Bucket::binary(),
+          Key::binary(),
+          Namespace::binary(),
+          TagName::binary(),
+          TagValue::binary()) ->
+                 {ok, MetricIdx::non_neg_integer()}|
+                 {error, Error::term()}.
+
+add(Collection, Metric, Bucket, Key, Namespace, Name, Value) ->
+    add(Collection, Metric, Bucket, Key, [{Namespace, Name, Value}]).
 
 delete(Collection, Metric, Bucket, Key) ->
     Q = "DELETE FROM metrics WHERE collection = $1 " ++
@@ -106,20 +105,22 @@ delete(_Bucket, _Metric, _LookupBucket, _LookupMetric, _Tags) ->
     {error, not_implemented}.
 
 -spec delete(Collection::binary(),
-          Metric::binary(),
-          Bucket::binary(),
-          Key::binary(),
-          TagName::binary(),
-          TagValue::binary()) ->
-    ok |
-    {error, Error::term()}.
+             Metric::binary(),
+             Bucket::binary(),
+             Key::binary(),
+             Namespace::binary(),
+             TagName::binary(),
+             TagValue::binary()) ->
+                    ok |
+                    {error, Error::term()}.
 
-delete(_Bucket, _Metric, _LookupBucket, _LookupMetric, _TagKey, _TagValue) ->
+delete(_Bucket, _Metric, _LookupBucket, _LookupMetric, _Namespace, _TagKey,
+       _TagValue) ->
     {error, not_implemented}.
 
 %%====================================================================
 %% Internal functions
 %%====================================================================
 
-delta(T0) ->
-    (erlang:system_time() - T0)/1000/1000
+tdelta(T0) ->
+    (erlang:system_time() - T0)/1000/1000.
