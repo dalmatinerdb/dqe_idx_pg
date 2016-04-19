@@ -1,5 +1,5 @@
 -module(query_builder).
--export([lookup_query/1, add_tags/2]).
+-export([lookup_query/1, add_tags/2, glob_query/2]).
 
 -define(TAG_TABLE, "tags").
 -define(METRIC_TABLE, "metrics").
@@ -23,8 +23,20 @@ lookup_query({in, Bucket, Metric, Where}) ->
              "FROM ", ?METRIC_TABLE, " ",
              "WHERE collection = $1 AND metric = $2 ",
              "AND id IN "],
-    {_N, TagPairs, TagPredicate} = unparse(Where),
+    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where),
     Values = [Bucket, Metric | TagPairs],
+    {ok, Query ++ TagPredicate, Values}.
+
+
+glob_query(Bucket, Glob) ->
+    Query = ["SELECT DISTINCT bucket, key ",
+             "FROM ", ?METRIC_TABLE, " ",
+             "WHERE bucket = $1 ",
+             "AND id IN "],
+    GlobTags = glob_to_tags(Glob),
+    Where = tags_to_where(GlobTags),
+    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 2),
+    Values = [Bucket | TagPairs],
     {ok, Query ++ TagPredicate, Values}.
 
 add_tags(MID, Tags) ->
@@ -47,34 +59,44 @@ add_tag(P)  ->
 %%====================================================================
 %% Internal functions
 %%====================================================================
-unparse(Where) ->
-    unparse0(Where, 3, []).
 
-unparse0({'and', L, R}, N, TagPairs) ->
-    {N1, TagPairs1, Str1} = unparse0(L, N, TagPairs),
-    {N2, TagPairs2, Str2} = unparse0(R, N1, TagPairs1),
+tags_to_where([E]) ->
+    E;
+tags_to_where([E| R]) ->
+    {'and', E, tags_to_where(R)}.
+
+glob_to_tags(Glob) ->
+    glob_to_tags(Glob, 1,
+                 [{'=', {tag, <<"ddb">>, <<"key_length">>},
+                   integer_to_binary(length(Glob))}]).
+
+glob_to_tags([], _,  Tags) ->
+    Tags;
+glob_to_tags(['*' | R], N, Tags) ->
+    glob_to_tags(R, N + 1, Tags);
+
+glob_to_tags([E | R] , N, Tags) ->
+    PosBin = integer_to_binary(N),
+    T = {'=', {tag, <<"ddb">>, <<"part_", PosBin/binary>>}, E},
+    glob_to_tags(R, N + 1, [T | Tags]).
+
+build_tag_lookup(Where) ->
+    build_tag_lookup(Where, 3).
+
+build_tag_lookup(Where, N) ->
+    build_tag_lookup(Where, N, []).
+
+build_tag_lookup({'and', L, R}, N, TagPairs) ->
+    {N1, TagPairs1, Str1} = build_tag_lookup(L, N, TagPairs),
+    {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
     {N2, TagPairs2, ["(", Str1, " INTERSECT ", Str2, ")"]};
-unparse0({'or', L, R}, N, TagPairs) ->
-    {N1, TagPairs1, Str1} = unparse0(L, N, TagPairs),
-    {N2, TagPairs2, Str2} = unparse0(R, N1, TagPairs1),
+build_tag_lookup({'or', L, R}, N, TagPairs) ->
+    {N1, TagPairs1, Str1} = build_tag_lookup(L, N, TagPairs),
+    {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
     {N2, TagPairs2, ["(", Str1, " UNION ", Str2, ")"]};
-unparse0({'=', {tag, NS, K}, V}, NIn, Vals) ->
+build_tag_lookup({'=', {tag, NS, K}, V}, NIn, Vals) ->
     Str = ["(SELECT DISTINCT metric_id FROM tags WHERE ",
            " namespace = $", integer_to_list(NIn),
            " AND name = $", integer_to_list(NIn+1),
            " AND value = $", integer_to_list(NIn+2), ")"],
     {NIn+3, [NS, K, V | Vals], Str}.
-
-
-%% unparse0({'and', L, R}, N, TagPairs) ->
-%%     {N1, TagPairs1, Str1} = unparse0(L, N, TagPairs),
-%%     {N2, TagPairs2, Str2} = unparse0(R, N1, TagPairs1),
-%%     {N2, TagPairs2, ["(", Str1, " AND ", Str2, ")"]};
-%% unparse0({'or', L, R}, N, TagPairs) ->
-%%     {N1, TagPairs1, Str1} = unparse0(L, N, TagPairs),
-%%     {N2, TagPairs2, Str2} = unparse0(R, N1, TagPairs1),
-%%     {N2, TagPairs2, ["(", Str1, " OR ", Str2, ")"]};
-%% unparse0({K, V}, NIn, Vals) ->
-%%     Str = ["(name = $", integer_to_list(NIn),
-%%            " AND value = $", integer_to_list(NIn+1), ")"],
-%%     {NIn+2, [K, V | Vals], Str}.

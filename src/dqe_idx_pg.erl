@@ -24,12 +24,17 @@ lookup(Query) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query),
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
-    lager:debug("[dqe_idx:pg:lookup] Query too ~pms: ~s <- ~p",
+    lager:debug("[dqe_idx:pg:lookup] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     {ok, Rows}.
 
-expand(_Bucket, _Glob) ->
-    {error, not_implemented}.
+expand(Bucket, Glob) ->
+    {ok, Q, Vs} = query_builder:glob_query(Bucket, Glob),
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:glob] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
+    {ok, Rows}.
 
 -spec add(Collection::binary(),
           Metric::binary(),
