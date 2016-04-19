@@ -31,7 +31,7 @@ add_tags(MID, Tags) ->
     build_tags(MID, 1, Tags, "SELECT", []).
 
 build_tags(MID, P, [{NS, N, V}], Q, Vs) ->
-    {[Q, add_tag(P)], lists:reverse([V, N, MID | Vs])};
+    {[Q, add_tag(P)], lists:reverse([V, N, NS, MID | Vs])};
 
 build_tags(MID, P, [{NS, N, V} | Tags], Q, Vs) ->
     Q1 = [Q, add_tag(P), ","],
@@ -63,7 +63,7 @@ unparse0({'=', {tag, NS, K}, V}, NIn, Vals) ->
            " namespace = $", integer_to_list(NIn),
            " name = $", integer_to_list(NIn+1),
            " AND value = $", integer_to_list(NIn+2), ")"],
-    {NIn+3, [K, V | Vals], Str}.
+    {NIn+3, [NS, K, V | Vals], Str}.
 
 
 %% unparse0({'and', L, R}, N, TagPairs) ->
