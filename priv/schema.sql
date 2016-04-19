@@ -1,7 +1,7 @@
 -- CREATE DATABASE metric_metadata;
 CREATE USER ddb WITH PASSWORD 'ddb';
-CREATE DATABASE metric_metadata;
-GRANT ALL PRIVILEGES ON metric_metadata TO ddb;
+CREATE DATABASE metric_metadata OWNER ddb;
+GRANT ALL ON DATABASE metric_metadata TO ddb;
 \connect metric_metadata;
 
 CREATE TABLE metrics (
@@ -11,6 +11,8 @@ CREATE TABLE metrics (
     bucket      varchar NOT NULL,
     key         varchar NOT NULL
 );
+GRANT ALL On metrics TO ddb;
+GRANT ALL On metrics_id_seq TO ddb;
 
 CREATE UNIQUE INDEX metrics_idx ON metrics (collection, metric, bucket, key);
 
@@ -21,8 +23,8 @@ BEGIN
     LOOP
         -- first try to update the key
         -- note that "a" must be unique
-        SELECT id FROM metrics INTO aid WHERE collection = acollection 
-          AND metric = ametric 
+        SELECT id FROM metrics INTO aid WHERE collection = acollection
+          AND metric = ametric
           AND bucket = abucket
           AND key = akey;
         IF found THEN
@@ -48,6 +50,9 @@ CREATE TABLE tags (
     name        text NOT NULL,
     value       text NOT NULL
 );
+
+GRANT ALL On tags TO ddb;
+
 CREATE UNIQUE INDEX tags_idx ON tags (metric_id, namespace, name, value);
 CREATE UNIQUE INDEX tags_name_idx ON tags (metric_id, namespace, name);
 CREATE INDEX tags_idx_name ON TAGS (namespace, name);
@@ -72,7 +77,7 @@ BEGIN
         -- we could get a unique-key failure
         BEGIN
             INSERT INTO tags (metric_id, namespace, name, value)
-              VALUES (ametric_id, anamespcae, aname, avalue);
+              VALUES (ametric_id, anamespace, aname, avalue);
             RETURN;
         EXCEPTION WHEN unique_violation THEN
             -- do nothing, and loop to try the UPDATE again
@@ -81,10 +86,3 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql;
-
-CREATE TABLE metric_elements (
-  metric_id bigserial REFERENCES metrics (id) ON DELETE CASCADE,
-  position integer CHECK (position > 9),
-  tag_metric text
-);
-CREATE UNIQUE INDEX metric_elements_idx ON metric_elements (metric_id, position, tag_metric);
