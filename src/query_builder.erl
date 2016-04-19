@@ -28,13 +28,14 @@ lookup_query({in, Bucket, Metric, Where}) ->
     {ok, Query ++ TagPredicate, Values}.
 
 
-glob_query(Bucket, Glob) ->
-    Query = ["SELECT DISTINCT bucket, key ",
+glob_query(Bucket, Globs) ->
+    Query = ["SELECT DISTINCT key ",
              "FROM ", ?METRIC_TABLE, " ",
              "WHERE bucket = $1 ",
              "AND id IN "],
-    GlobTags = glob_to_tags(Glob),
-    Where = tags_to_where(GlobTags),
+    GlobWheres = [and_tags(glob_to_tags(Glob))
+                  || Glob <- Globs],
+    Where = or_tags(GlobWheres),
     {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 2),
     Values = [Bucket | TagPairs],
     {ok, Query ++ TagPredicate, Values}.
@@ -60,10 +61,15 @@ add_tag(P)  ->
 %% Internal functions
 %%====================================================================
 
-tags_to_where([E]) ->
+and_tags([E]) ->
     E;
-tags_to_where([E| R]) ->
-    {'and', E, tags_to_where(R)}.
+and_tags([E| R]) ->
+    {'and', E, and_tags(R)}.
+
+or_tags([E]) ->
+    E;
+or_tags([E| R]) ->
+    {'or', E, or_tags(R)}.
 
 glob_to_tags(Glob) ->
     glob_to_tags(Glob, 1,

@@ -28,13 +28,13 @@ lookup(Query) ->
                 [tdelta(T0), Q, Vs]),
     {ok, Rows}.
 
-expand(Bucket, Glob) ->
-    {ok, Q, Vs} = query_builder:glob_query(Bucket, Glob),
+expand(Bucket, Globs) ->
+    {ok, Q, Vs} = query_builder:glob_query(Bucket, Globs),
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:glob] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
-    {ok, Rows}.
+    {ok, {Bucket, Rows}}.
 
 -spec add(Collection::binary(),
           Metric::binary(),
