@@ -61,7 +61,7 @@ unparse0({'or', L, R}, N, TagPairs) ->
 unparse0({'=', {tag, NS, K}, V}, NIn, Vals) ->
     Str = ["(SELECT DISTINCT metric_id FROM tags WHERE ",
            " namespace = $", integer_to_list(NIn),
-           " name = $", integer_to_list(NIn+1),
+           " AND name = $", integer_to_list(NIn+1),
            " AND value = $", integer_to_list(NIn+2), ")"],
     {NIn+3, [NS, K, V | Vals], Str}.
 
