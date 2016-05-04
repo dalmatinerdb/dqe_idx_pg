@@ -1,5 +1,5 @@
 -module(query_builder).
--export([lookup_query/1, add_tags/2, glob_query/2]).
+-export([lookup_query/1, lookup_tags_query/1, add_tags/2, glob_query/2]).
 
 -define(TAG_TABLE, "tags").
 -define(METRIC_TABLE, "metrics").
@@ -27,6 +27,28 @@ lookup_query({in, Bucket, Metric, Where}) ->
     Values = [Bucket, Metric | TagPairs],
     {ok, Query ++ TagPredicate, Values}.
 
+lookup_tags_query({in, Collection, Metric}) when is_list(Metric) ->
+    lookup_tags_query({in, Collection, dproto:metric_from_list(Metric)});
+lookup_tags_query({in, Collection, Metric, Where}) when is_list(Metric) ->
+    lookup_tags_query({in, Collection, dproto:metric_from_list(Metric), Where});
+lookup_tags_query({in, Collection, Metric}) ->
+    Query = "SELECT DISTINCT namespace, name, value "
+        "FROM " ?TAG_TABLE " "
+        "LEFT JOIN " ?METRIC_TABLE " ON "
+        ?TAG_TABLE ".metric_id = " ?METRIC_TABLE ".id "
+        "WHERE collection = $1 and metric = $2",
+    Values = [Collection, Metric],
+    {ok, Query, Values};
+lookup_tags_query({in, Bucket, Metric, Where}) ->
+    Query = "SELECT DISTINCT namespace, name, value "
+        "FROM " ?TAG_TABLE " "
+        "LEFT JOIN " ?METRIC_TABLE " ON "
+        ?TAG_TABLE ".metric_id = " ?METRIC_TABLE ".id "
+        "WHERE collection = $1 and metric = $2"
+        "AND " ?METRIC_TABLE ".id IN ",
+    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where),
+    Values = [Bucket, Metric | TagPairs],
+    {ok, Query ++ TagPredicate, Values}.
 
 glob_query(Bucket, Globs) ->
     Query = ["SELECT DISTINCT key ",
@@ -39,6 +61,7 @@ glob_query(Bucket, Globs) ->
     {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 2),
     Values = [Bucket | TagPairs],
     {ok, Query ++ TagPredicate, Values}.
+
 
 add_tags(MID, Tags) ->
     build_tags(MID, 1, Tags, "SELECT", []).

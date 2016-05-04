@@ -3,7 +3,10 @@
 
 %% API exports
 -export([
-         init/0, lookup/1, expand/2,
+         init/0,
+         lookup/1, lookup_tags/1,
+         collections/0, metrics/1, namespaces/2, tags/3,
+         expand/2,
          add/4, add/5, add/7,
          delete/4, delete/5, delete/7
         ]).
@@ -25,6 +28,56 @@ lookup(Query) ->
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:lookup] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
+    {ok, Rows}.
+
+lookup_tags(Query) ->
+    {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:lookup] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
+    {ok, Rows}.
+
+
+collections() ->
+    Q = "SELECT DISTINCT collection FROM metrics",
+    Vs = [],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:collections] Query took ~pms: ~s",
+                [tdelta(T0), Q]),
+    {ok, Rows}.
+
+metrics(Collection) ->
+    Q = "SELECT DISTINCT metric FROM metrics WHERE collection = $1",
+    Vs = [Collection],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:metrics] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
+    {ok, Rows}.
+
+namespaces(Collection, Metric) ->
+    Q = "SELECT DISTINCT(namespace) FROM tags "
+        "LEFT JOIN metrics ON tags.metric_id = metrics.id "
+        "WHERE metrics.collection = $1 AND metrics.metric = $2",
+    Vs = [Collection, Metric],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:namespaces] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
+    {ok, Rows}.
+
+tags(Collection, Metric, Namespace) ->
+    Q = "SELECT DISTINCT(name) FROM tags "
+        "LEFT JOIN metrics ON tags.metric_id = metrics.id "
+        "WHERE metrics.collection = $1 AND metrics.metric = $2 "
+        "AND tags.namespace = $3",
+    Vs = [Collection, Metric, Namespace],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:tags] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     {ok, Rows}.
 

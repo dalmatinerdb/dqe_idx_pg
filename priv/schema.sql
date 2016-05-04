@@ -86,3 +86,24 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql;
+
+
+
+
+-- List all bucket
+-- SELECT DISTINCT(bucket) FROM metrics;
+
+-- List all metrics in a bucket
+-- SELECT DISTINCT(metric) FROM metrics WHERE bucket = 'bucket';
+
+-- List all names/namepaces for a metric
+-- SELECT DISTINCT(namespace) FROM tags LEFT JOIN metrics ON tags.metric_id = metrics.id WHERE metrics.collection = 'bucket' AND metrics.metric = 'metric';
+
+-- List all names for a metric/namespace
+-- SELECT DISTINCT(name) FROM tags LEFT JOIN metrics ON tags.metric_id = metrics.id WHERE metrics.collection = 'bucket' AND metrics.metric = 'metric' AND tags.namespace = 'ddb';
+
+-- List all names/namepaces for a metric
+-- SELECT DISTINCT(namespace, name) FROM tags LEFT JOIN metrics ON tags.metric_id = metrics.id WHERE metrics.collection = 'bucket' AND metrics.metric = 'metric';
+
+-- List all values for a name/namespace
+-- SELECT DISTINCT(value) FROM tags LEFT JOIN metrics ON tags.metric_id = metrics.id WHERE metrics.collection = 'bucket' AND metrics.metric = 'metric' AND tags.namespace = '' AND  tags.name = 'what';
