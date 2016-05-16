@@ -10,6 +10,11 @@
  [{default, 20},
   {datatype, integer}]}.
 
+%% @doc Number of overflow connections - be careful with those!
+{mapping, "idx.pg.max_overflow", "dqe_idx_pg.max_overflow",
+ [{default, 0},
+  {datatype, integer}]}.
+
 %% @doc Initial number of conneciton pool workers
 {mapping, "idx.pg.database", "dqe_idx_pg.database",
  [{default, "metric_metadata"},

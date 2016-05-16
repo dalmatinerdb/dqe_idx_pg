@@ -16,7 +16,7 @@
 %%====================================================================
 
 init() ->
-    Opts = [size, database, username, password],
+    Opts = [size, max_overflow, database, username, password],
     Opts1 = [{O, application:get_env(dqe_idx_pg, O, undefined)}
              || O <- Opts],
     {ok, {Host, Port}} = application:get_env(dqe_idx_pg, server),
