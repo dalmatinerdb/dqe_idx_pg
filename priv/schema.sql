@@ -7,16 +7,16 @@ GRANT ALL ON DATABASE metric_metadata TO ddb;
 CREATE TABLE metrics (
     id          bigserial PRIMARY key,
     collection  varchar NOT NULL,
-    metric      varchar NOT NULL,
+    metric      bytea NOT NULL,
     bucket      varchar NOT NULL,
-    key         varchar NOT NULL
+    key         bytea NOT NULL
 );
 GRANT ALL On metrics TO ddb;
 GRANT ALL On metrics_id_seq TO ddb;
 
 CREATE UNIQUE INDEX metrics_idx ON metrics (collection, metric, bucket, key);
 
-CREATE FUNCTION add_metric(acollection text, ametric text, abucket text, akey text) RETURNS bigint AS
+CREATE FUNCTION add_metric(acollection text, ametric bytea, abucket text, akey bytea) RETURNS bigint AS
 $$
 DECLARE aid integer;
 BEGIN
@@ -86,9 +86,6 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql;
-
-
-
 
 -- List all bucket
 -- SELECT DISTINCT(bucket) FROM metrics;

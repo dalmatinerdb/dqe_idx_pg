@@ -4,7 +4,7 @@
 %% API exports
 -export([
          init/0,
-         lookup/1, lookup_tags/1,
+         lookup/1, lookup/2, lookup_tags/1,
          collections/0, metrics/1, namespaces/2, tags/3,
          expand/2,
          add/4, add/5, add/7,
@@ -24,7 +24,11 @@ init() ->
 
 
 lookup(Query) ->
-    {ok, Q, Vs} = query_builder:lookup_query(Query),
+    lookup(Query, []).
+
+lookup(Query, Groupings) ->
+    {ok, Q, Vs} = query_builder:lookup_query(Query, Groupings),
+    io:format("~s~n", [Q]),
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:lookup] Query took ~pms: ~s <- ~p",
@@ -38,7 +42,6 @@ lookup_tags(Query) ->
     lager:debug("[dqe_idx:pg:lookup] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     {ok, Rows}.
-
 
 collections() ->
     Q = "SELECT DISTINCT collection FROM metrics",

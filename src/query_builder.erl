@@ -1,5 +1,5 @@
 -module(query_builder).
--export([lookup_query/1, lookup_tags_query/1, add_tags/2, glob_query/2]).
+-export([lookup_query/2, lookup_tags_query/1, add_tags/2, glob_query/2]).
 
 -define(TAG_TABLE, "tags").
 -define(METRIC_TABLE, "metrics").
@@ -8,23 +8,35 @@
 %% API
 %%====================================================================
 
-lookup_query({in, Collection, Metric}) when is_list(Metric) ->
-    lookup_query({in, Collection, dproto:metric_from_list(Metric)});
-lookup_query({in, Collection, Metric, Where}) when is_list(Metric) ->
-    lookup_query({in, Collection, dproto:metric_from_list(Metric), Where});
-lookup_query({in, Collection, Metric}) ->
+lookup_query({in, Collection, Metric}, Groupings) when is_list(Metric) ->
+    MetricBin = dproto:metric_from_list(Metric),
+    lookup_query({in, Collection, MetricBin},Groupings);
+lookup_query({in, Collection, Metric, Where}, Groupings) when is_list(Metric) ->
+    MetricBin = dproto:metric_from_list(Metric),
+    lookup_query({in, Collection, MetricBin, Where}, Groupings);
+lookup_query({in, Collection, Metric}, Grouping) ->
+    GroupingCount = length(Grouping),
+    GroupingNames = grouping_names(GroupingCount),
     Query = ["SELECT DISTINCT bucket, key ",
+             grouping_select(GroupingNames),
              "FROM ", ?METRIC_TABLE, " ",
-             "WHERE collection = $1 and metric = $2"],
-    Values = [Collection, Metric],
+             grouping_join(GroupingNames),
+             "WHERE collection = $1 and metric = $2 ",
+             grouping_where(GroupingNames, 3)],
+    Values = [Collection, Metric | Grouping],
     {ok, Query, Values};
-lookup_query({in, Bucket, Metric, Where}) ->
-    Query = ["SELECT DISTINCT bucket, key ",
+lookup_query({in, Bucket, Metric, Where}, Grouping) ->
+    GroupingCount = length(Grouping),
+    GroupingNames = grouping_names(GroupingCount),
+    Query = ["SELECT DISTINCT bucket, key",
+             grouping_select(GroupingNames),
              "FROM ", ?METRIC_TABLE, " ",
+             grouping_join(GroupingNames),
              "WHERE collection = $1 AND metric = $2 ",
+             grouping_where(GroupingNames, 3),
              "AND id IN "],
-    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where),
-    Values = [Bucket, Metric | TagPairs],
+    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 3 + GroupingCount),
+    Values = [Bucket, Metric | Grouping ++ TagPairs],
     {ok, Query ++ TagPredicate, Values}.
 
 lookup_tags_query({in, Collection, Metric}) when is_list(Metric) ->
@@ -75,10 +87,10 @@ build_tags(MID, P, [{NS, N, V} | Tags], Q, Vs) ->
     build_tags(MID, P+4, Tags, Q1, Vs1).
 
 add_tag(P)  ->
-    [" add_tag($", integer_to_list(P), ", "
-     "$", integer_to_list(P + 1), ", "
-     "$", integer_to_list(P + 2), ", "
-     "$", integer_to_list(P + 3), ")"].
+    [" add_tag($", i2l(P), ", "
+     "$", i2l(P + 1), ", "
+     "$", i2l(P + 2), ", "
+     "$", i2l(P + 3), ")"].
 
 %%====================================================================
 %% Internal functions
@@ -125,7 +137,36 @@ build_tag_lookup({'or', L, R}, N, TagPairs) ->
     {N2, TagPairs2, ["(", Str1, " UNION ", Str2, ")"]};
 build_tag_lookup({'=', {tag, NS, K}, V}, NIn, Vals) ->
     Str = ["(SELECT DISTINCT metric_id FROM tags WHERE ",
-           " namespace = $", integer_to_list(NIn),
-           " AND name = $", integer_to_list(NIn+1),
-           " AND value = $", integer_to_list(NIn+2), ")"],
+           " namespace = $", i2l(NIn),
+           " AND name = $", i2l(NIn+1),
+           " AND value = $", i2l(NIn+2), ")"],
     {NIn+3, [NS, K, V | Vals], Str}.
+
+grouping_names(0) ->
+    [];
+grouping_names(N) ->
+    ["g" ++ i2l(I) || I <- lists:seq(1, N)].
+
+grouping_select([]) ->
+    [];
+grouping_select([Name | R]) ->
+    [", ARRAY[", Name, ".value" | grouping_select_(R)].
+
+grouping_select_([]) ->
+    "] ";
+grouping_select_([Name | R]) ->
+    [", ", Name, ".value" | grouping_select_(R)].
+
+grouping_where([], _) ->
+    "";
+grouping_where([Name | R], Pos) ->
+    ["AND ", Name, ".name = $",  i2l(Pos), " " | grouping_where(R, Pos + 1)].
+
+grouping_join([]) ->
+    "";
+grouping_join([N | R]) ->
+    ["INNER JOIN ", ?TAG_TABLE, " AS ", N,
+     " ON ", N, ".metric_id = ", ?METRIC_TABLE ".id " | grouping_join(R)].
+
+i2l(I) ->
+    integer_to_list(I).
