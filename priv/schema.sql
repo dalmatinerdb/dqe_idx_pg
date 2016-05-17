@@ -16,6 +16,8 @@ GRANT ALL On metrics_id_seq TO ddb;
 
 CREATE UNIQUE INDEX metrics_idx ON metrics (collection, metric, bucket, key);
 
+-- BEGIN;
+-- DROP FUNCTION add_metric(acollection text, ametric bytea, abucket text, akey bytea);
 CREATE FUNCTION add_metric(acollection text, ametric bytea, abucket text, akey bytea) RETURNS bigint AS
 $$
 DECLARE aid integer;
@@ -43,6 +45,7 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql;
+-- COMMIT;
 
 CREATE TABLE tags (
     metric_id bigserial REFERENCES metrics (id) ON DELETE CASCADE,

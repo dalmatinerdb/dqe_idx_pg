@@ -148,7 +148,7 @@ grouping_names(N) ->
     ["g" ++ i2l(I) || I <- lists:seq(1, N)].
 
 grouping_select([]) ->
-    [];
+    " ";
 grouping_select([Name | R]) ->
     [", ARRAY[", Name, ".value" | grouping_select_(R)].
 
@@ -163,7 +163,7 @@ grouping_where([Name | R], Pos) ->
     ["AND ", Name, ".name = $",  i2l(Pos), " " | grouping_where(R, Pos + 1)].
 
 grouping_join([]) ->
-    "";
+    " ";
 grouping_join([N | R]) ->
     ["INNER JOIN ", ?TAG_TABLE, " AS ", N,
      " ON ", N, ".metric_id = ", ?METRIC_TABLE ".id " | grouping_join(R)].
