@@ -28,7 +28,6 @@ lookup(Query) ->
 
 lookup(Query, Groupings) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, Groupings),
-    io:format("~s~n", [Q]),
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:lookup] Query took ~pms: ~s <- ~p",
