@@ -50,8 +50,10 @@ GRANT ALL On tags TO ddb;
 
 CREATE UNIQUE INDEX tags_idx ON tags (metric_id, namespace, name, value);
 CREATE UNIQUE INDEX tags_name_idx ON tags (metric_id, namespace, name);
-CREATE INDEX tags_idx_name ON TAGS (namespace, name);
-CREATE INDEX tags_idx_value ON TAGS (value);
+CREATE INDEX tags_idx_metric_id ON tags (metric_id);
+CREATE INDEX tags_idx_name ON tags (namespace, name);
+CREATE INDEX tags_idx_namespace_name_value ON tags (namespace, name, value);
+CREATE INDEX tags_idx_value ON tags (value);
 
 -- BEGIN;
 -- --DROP FUNCTION add_tag(ametric_id bigint, anamespace text, aname text, avalue text);

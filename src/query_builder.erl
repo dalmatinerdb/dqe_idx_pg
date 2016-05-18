@@ -21,7 +21,7 @@ lookup_query({in, Collection, Metric}, Grouping) ->
              grouping_select(GroupingNames),
              "FROM ", ?METRIC_TABLE, " ",
              grouping_join(GroupingNames),
-             "WHERE collection = $1 and metric = $2 ",
+             "WHERE collection = $1 AND metric = $2 ",
              grouping_where(GroupingNames, 3)],
     Values = [Collection, Metric | Grouping],
     {ok, Query, Values};
@@ -34,7 +34,7 @@ lookup_query({in, Bucket, Metric, Where}, Grouping) ->
              grouping_join(GroupingNames),
              "WHERE collection = $1 AND metric = $2 ",
              grouping_where(GroupingNames, 3),
-             "AND id IN "],
+             "AND "],
     {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 3 + GroupingCount),
     Values = [Bucket, Metric | Grouping ++ TagPairs],
     {ok, Query ++ TagPredicate, Values}.
@@ -55,9 +55,9 @@ lookup_tags_query({in, Bucket, Metric, Where}) ->
     Query = "SELECT DISTINCT namespace, name, value "
         "FROM " ?TAG_TABLE " "
         "LEFT JOIN " ?METRIC_TABLE " ON "
-        ?TAG_TABLE ".metric_id = " ?METRIC_TABLE ".id "
+        ?TAG_TABLE ".metric_id = id "
         "WHERE collection = $1 and metric = $2"
-        "AND " ?METRIC_TABLE ".id IN ",
+        "AND ",
     {_N, TagPairs, TagPredicate} = build_tag_lookup(Where),
     Values = [Bucket, Metric | TagPairs],
     {ok, Query ++ TagPredicate, Values}.
@@ -65,8 +65,7 @@ lookup_tags_query({in, Bucket, Metric, Where}) ->
 glob_query(Bucket, Globs) ->
     Query = ["SELECT DISTINCT key ",
              "FROM ", ?METRIC_TABLE, " ",
-             "WHERE bucket = $1 ",
-             "AND id IN "],
+             "WHERE bucket = $1 AND "],
     GlobWheres = [and_tags(glob_to_tags(Glob))
                   || Glob <- Globs],
     Where = or_tags(GlobWheres),
@@ -130,13 +129,13 @@ build_tag_lookup(Where, N) ->
 build_tag_lookup({'and', L, R}, N, TagPairs) ->
     {N1, TagPairs1, Str1} = build_tag_lookup(L, N, TagPairs),
     {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
-    {N2, TagPairs2, ["(", Str1, " INTERSECT ", Str2, ")"]};
+    {N2, TagPairs2, ["(", Str1, " AND ", Str2, ")"]};
 build_tag_lookup({'or', L, R}, N, TagPairs) ->
     {N1, TagPairs1, Str1} = build_tag_lookup(L, N, TagPairs),
     {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
-    {N2, TagPairs2, ["(", Str1, " UNION ", Str2, ")"]};
+    {N2, TagPairs2, ["(", Str1, " OR ", Str2, ")"]};
 build_tag_lookup({'=', {tag, NS, K}, V}, NIn, Vals) ->
-    Str = ["(SELECT DISTINCT metric_id FROM tags WHERE ",
+    Str = ["id In (SELECT metric_id FROM tags WHERE ",
            " namespace = $", i2l(NIn),
            " AND name = $", i2l(NIn+1),
            " AND value = $", i2l(NIn+2), ")"],
