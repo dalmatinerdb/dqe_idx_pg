@@ -5,7 +5,7 @@
 -export([
          init/0,
          lookup/1, lookup/2, lookup_tags/1,
-         collections/0, metrics/1, namespaces/2, tags/3,
+         collections/0, metrics/1, namespaces/2, tags/3, values/4,
          expand/2,
          add/4, add/5, add/7,
          delete/4, delete/5, delete/7
@@ -77,6 +77,18 @@ tags(Collection, Metric, Namespace) ->
         "WHERE metrics.collection = $1 AND metrics.metric = $2 "
         "AND tags.namespace = $3",
     Vs = [Collection, Metric, Namespace],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:tags] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
+    {ok, strip_tpl(Rows)}.
+
+values(Collection, Metric, Namespace, Tag) ->
+    Q = "SELECT DISTINCT(value) FROM tags "
+        "LEFT JOIN metrics ON tags.metric_id = metrics.id "
+        "WHERE metrics.collection = $1 AND metrics.metric = $2 "
+        "AND tags.namespace = $3 AND name = $4",
+    Vs = [Collection, Metric, Namespace, Tag],
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:tags] Query took ~pms: ~s <- ~p",
