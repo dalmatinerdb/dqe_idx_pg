@@ -49,7 +49,7 @@ collections() ->
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:collections] Query took ~pms: ~s",
                 [tdelta(T0), Q]),
-    {ok, Rows}.
+    {ok, strip_tpl(Rows)}.
 
 metrics(Collection) ->
     Q = "SELECT DISTINCT metric FROM metrics WHERE collection = $1",
@@ -58,7 +58,7 @@ metrics(Collection) ->
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:metrics] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
-    {ok, Rows}.
+    {ok, strip_tpl(Rows)}.
 
 namespaces(Collection, Metric) ->
     Q = "SELECT DISTINCT(namespace) FROM tags "
@@ -69,7 +69,7 @@ namespaces(Collection, Metric) ->
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:namespaces] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
-    {ok, Rows}.
+    {ok, strip_tpl(Rows)}.
 
 tags(Collection, Metric, Namespace) ->
     Q = "SELECT DISTINCT(name) FROM tags "
@@ -81,7 +81,7 @@ tags(Collection, Metric, Namespace) ->
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:tags] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
-    {ok, Rows}.
+    {ok, strip_tpl(Rows)}.
 
 expand(Bucket, Globs) ->
     {ok, Q, Vs} = query_builder:glob_query(Bucket, Globs),
@@ -185,3 +185,6 @@ delete(_Bucket, _Metric, _LookupBucket, _LookupMetric, _Namespace, _TagKey,
 
 tdelta(T0) ->
     (erlang:system_time() - T0)/1000/1000.
+
+strip_tpl(L) ->
+    [E || {E} <- L].
