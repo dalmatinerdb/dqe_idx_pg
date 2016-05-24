@@ -1,5 +1,6 @@
 -module(query_builder).
--export([lookup_query/2, lookup_tags_query/1, add_tags/2, glob_query/2]).
+-export([lookup_query/2, lookup_tags_query/1, add_tags/2, update_tags/2,
+         glob_query/2, i2l/1]).
 
 -define(TAG_TABLE, "tags").
 -define(METRIC_TABLE, "metrics").
@@ -10,7 +11,7 @@
 
 lookup_query({in, Collection, Metric}, Groupings) when is_list(Metric) ->
     MetricBin = dproto:metric_from_list(Metric),
-    lookup_query({in, Collection, MetricBin},Groupings);
+    lookup_query({in, Collection, MetricBin}, Groupings);
 lookup_query({in, Collection, Metric, Where}, Groupings) when is_list(Metric) ->
     MetricBin = dproto:metric_from_list(Metric),
     lookup_query({in, Collection, MetricBin, Where}, Groupings);
@@ -75,21 +76,26 @@ glob_query(Bucket, Globs) ->
 
 
 add_tags(MID, Tags) ->
-    build_tags(MID, 1, Tags, "SELECT", []).
+    Fn = "add_tag",
+    build_add_tags(MID, 1, Fn, Tags, "SELECT", []).
 
-build_tags(MID, P, [{NS, N, V}], Q, Vs) ->
-    {[Q, add_tag(P)], lists:reverse([V, N, NS, MID | Vs])};
+build_add_tags(MID, P, Fn, [{NS, N, V}], Q, Vs) ->
+    {[Q, add_tag(Fn, P)], lists:reverse([V, N, NS, MID | Vs])};
 
-build_tags(MID, P, [{NS, N, V} | Tags], Q, Vs) ->
-    Q1 = [Q, add_tag(P), ","],
+build_add_tags(MID, P, Fn, [{NS, N, V} | Tags], Q, Vs) ->
+    Q1 = [Q, add_tag(Fn, P), ","],
     Vs1 = [V, N, NS, MID | Vs],
-    build_tags(MID, P+4, Tags, Q1, Vs1).
+    build_add_tags(MID, P+4, Fn, Tags, Q1, Vs1).
 
-add_tag(P)  ->
-    [" add_tag($", i2l(P), ", "
+add_tag(Fn, P)  ->
+    [" ", Fn, "($", i2l(P), ", "
      "$", i2l(P + 1), ", "
      "$", i2l(P + 2), ", "
      "$", i2l(P + 3), ")"].
+
+update_tags(MID, Tags) ->
+    Fn = "update_tag",
+    build_add_tags(MID, 1, Fn, Tags, "SELECT", []).
 
 %%====================================================================
 %% Internal functions

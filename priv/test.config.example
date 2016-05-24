@@ -1,0 +1,9 @@
+%% -*- erlang -*-
+[{dqe_idx, [{lookup_module, dqe_idx_pg}]},
+ {dqe_idx_pg,
+  [{server, {"127.0.0.1", 5432}},
+   {size, 1},
+   {max_overflow, 0},
+   {database, "metric_metadata"},
+   {username, "ddb"},
+   {password, "ddb"}]}].

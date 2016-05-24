@@ -7,8 +7,9 @@
          lookup/1, lookup/2, lookup_tags/1,
          collections/0, metrics/1, namespaces/2, tags/3, values/4,
          expand/2,
-         add/4, add/5, add/7,
-         delete/4, delete/5, delete/7
+         add/4, add/5, update/5,
+         delete/4, delete/5,
+         get_id/4, tdelta/1
         ]).
 
 %%====================================================================
@@ -30,7 +31,7 @@ lookup(Query, Groupings) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, Groupings),
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
-    lager:debug("[dqe_idx:pg:lookup] Query took ~pms: ~s <- ~p",
+    lager:debug("[dqe_idx:pg:lookup/2] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     {ok, Rows}.
 
@@ -38,7 +39,7 @@ lookup_tags(Query) ->
     {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
-    lager:debug("[dqe_idx:pg:lookup] Query took ~pms: ~s <- ~p",
+    lager:debug("[dqe_idx:pg:lookup/1] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     {ok, Rows}.
 
@@ -79,7 +80,7 @@ tags(Collection, Metric, Namespace) ->
     Vs = [Collection, Metric, Namespace],
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
-    lager:debug("[dqe_idx:pg:tags] Query took ~pms: ~s <- ~p",
+    lager:debug("[dqe_idx:pg:tags/3] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
@@ -91,7 +92,7 @@ values(Collection, Metric, Namespace, Tag) ->
     Vs = [Collection, Metric, Namespace, Tag],
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
-    lager:debug("[dqe_idx:pg:tags] Query took ~pms: ~s <- ~p",
+    lager:debug("[dqe_idx:pg:values/4] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
@@ -99,7 +100,7 @@ expand(Bucket, Globs) ->
     {ok, Q, Vs} = query_builder:glob_query(Bucket, Globs),
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
-    lager:debug("[dqe_idx:pg:glob] Query took ~pms: ~s <- ~p",
+    lager:debug("[dqe_idx:pg:expand/2] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     Rows1 = [K || {K} <- Rows],
     {ok, {Bucket, Rows1}}.
@@ -116,7 +117,7 @@ add(Collection, Metric, Bucket, Key) ->
     Vs = [Collection, Metric, Bucket, Key],
     T0 = erlang:system_time(),
     case pgapp:equery(Q, Vs) of
-        {ok,[_],[{ID}]} ->
+        {ok, [_], [{ID}]} ->
             lager:debug("[dqe_idx:pg:add/4] Query too ~pms: ~s <- ~p",
                         [tdelta(T0), Q, Vs]),
 
@@ -135,7 +136,7 @@ add(Collection, Metric, Bucket, Key, NVs) ->
     {Q, Vs} = query_builder:add_tags(MID, NVs),
     T0 = erlang:system_time(),
     case pgapp:equery(Q, Vs) of
-        {ok,_,_} ->
+        {ok, _, _} ->
             lager:debug("[dqe_idx:pg:add/5] Query too ~pms: ~s <- ~p",
                         [tdelta(T0), Q, Vs]),
             {ok, MID};
@@ -145,51 +146,63 @@ add(Collection, Metric, Bucket, Key, NVs) ->
             E
     end.
 
--spec add(Collection::binary(),
-          Metric::binary(),
-          Bucket::binary(),
-          Key::binary(),
-          Namespace::binary(),
-          TagName::binary(),
-          TagValue::binary()) ->
-                 {ok, MetricIdx::non_neg_integer()}|
-                 {error, Error::term()}.
-
-add(Collection, Metric, Bucket, Key, Namespace, Name, Value) ->
-    add(Collection, Metric, Bucket, Key, [{Namespace, Name, Value}]).
+update(Collection, Metric, Bucket, Key, NVs) ->
+    {ok, MID} = add(Collection, Metric, Bucket, Key),
+    {Q, Vs} = query_builder:update_tags(MID, NVs),
+    T0 = erlang:system_time(),
+    case pgapp:equery(Q, Vs) of
+        {ok, _, _} ->
+            lager:debug("[dqe_idx:pg:update/5] Query too ~pms: ~s <- ~p",
+                        [tdelta(T0), Q, Vs]),
+            {ok, MID};
+        E ->
+            lager:info("[dqe_idx:pg:update/5] Query failed after ~pms: "
+                       "~s <- ~p", [tdelta(T0), Q, Vs]),
+            E
+    end.
 
 delete(Collection, Metric, Bucket, Key) ->
-    Q = "DELETE FROM metrics WHERE collection = $1 " ++
+    Q = "DELETE FROM metrics WHERE collection = $1 AND " ++
         "metric = $2 AND bucket = $3 AND key = $4",
     Vs = [Collection, Metric, Bucket, Key],
     T0 = erlang:system_time(),
     case pgapp:equery(Q, Vs) of
-        {ok,[_],[{ID}]} ->
+        {ok, _} ->
             lager:debug("[dqe_idx:pg:delete/4] Query too ~pms: ~s <- ~p",
                         [tdelta(T0), Q, Vs]),
-            {ok, ID};
+            ok;
         E ->
-            lager:info("[dqe_idx:pg:delete/4] Query failed after ~pms: ~s <- ~p",
-                       [tdelta(T0), Q, Vs]),
+            lager:info("[dqe_idx:pg:delete/4] Query failed after ~pms: "
+                       "~s <- ~p", [tdelta(T0), Q, Vs]),
             E
     end.
 
-delete(_Bucket, _Metric, _LookupBucket, _LookupMetric, _Tags) ->
-    {error, not_implemented}.
+delete(Collection, Metric, Bucket, Key, Tags) ->
+    case get_id(Collection, Metric, Bucket, Key) of
+        not_found ->
+            ok;
+        {ok, ID} ->
+            Rs = [delete(ID, Namespace, Name) || {Namespace, Name} <- Tags],
+            case [R || R <- Rs, R /= ok] of
+                [] ->
+                    ok;
+                [E | _] ->
+                    E
+            end;
+        E ->
+            E
+    end.
 
--spec delete(Collection::binary(),
-             Metric::binary(),
-             Bucket::binary(),
-             Key::binary(),
-             Namespace::binary(),
-             TagName::binary(),
-             TagValue::binary()) ->
-                    ok |
-                    {error, Error::term()}.
-
-delete(_Bucket, _Metric, _LookupBucket, _LookupMetric, _Namespace, _TagKey,
-       _TagValue) ->
-    {error, not_implemented}.
+delete(MetricID, Namespace, TagName) ->
+    Q = "DELETE FROM tags WHERE metric_id = $1 AND "
+        "namespace = $2 AND name = $3",
+    Vs = [MetricID, Namespace, TagName],
+    case pgapp:equery(Q, Vs) of
+        {ok, _, _} ->
+            ok;
+        E ->
+            E
+    end.
 
 %%====================================================================
 %% Internal functions
@@ -200,3 +213,25 @@ tdelta(T0) ->
 
 strip_tpl(L) ->
     [E || {E} <- L].
+
+get_id(Collection, Metric, Bucket, Key) ->
+    T0 = erlang:system_time(),
+    Q = "SELECT id FROM metrics WHERE "
+        "collection = $1 AND "
+        "metric = $2 AND "
+        "bucket = $3 AND "
+        "key = $4",
+    Vs = [Collection, Metric, Bucket, Key],
+    case pgapp:equery(Q, Vs) of
+        {ok, [_], [{ID}]} ->
+            lager:debug("[dqe_idx:pg:get_id/4] Query too ~pms: ~s <- ~p",
+                        [tdelta(T0), Q, Vs]),
+
+            {ok, ID};
+        {ok, _, _} ->
+            not_found;
+        E ->
+            lager:info("[dqe_idx:pg:get_id/4] Query failed after ~pms:"
+                       " ~s <- ~p", [tdelta(T0), Q, Vs]),
+            E
+    end.
