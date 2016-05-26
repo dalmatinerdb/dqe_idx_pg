@@ -16,8 +16,6 @@ GRANT ALL On metrics_id_seq TO ddb;
 
 CREATE UNIQUE INDEX metrics_idx ON metrics (collection, metric, bucket, key);
 
-BEGIN;
-
 CREATE TABLE tags (
     metric_id bigserial REFERENCES metrics (id) ON DELETE CASCADE,
     namespace   text NOT NULL,
