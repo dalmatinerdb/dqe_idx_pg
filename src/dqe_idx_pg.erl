@@ -5,8 +5,8 @@
 -export([
          init/0,
          lookup/1, lookup/2, lookup_tags/1,
-         collections/0, metrics/1, namespaces/2, tags/3, values/4,
-         expand/2,
+         collections/0, metrics/1, namespaces/1, namespaces/2,
+         tags/2, tags/3, values/3, values/4, expand/2,
          add/4, add/5, update/5,
          delete/4, delete/5,
          get_id/4, tdelta/1
@@ -61,6 +61,17 @@ metrics(Collection) ->
                 [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
+namespaces(Collection) ->
+    Q = "SELECT DISTINCT(namespace) FROM tags "
+        "LEFT JOIN metrics ON tags.metric_id = metrics.id "
+        "WHERE metrics.collection = $1",
+    Vs = [Collection],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:namespaces] Query took ~pms: ~s <- ~p",
+               [tdelta(T0), Q, Vs]),
+    {ok, strip_tpl(Rows)}.
+
 namespaces(Collection, Metric) ->
     Q = "SELECT DISTINCT(namespace) FROM tags "
         "LEFT JOIN metrics ON tags.metric_id = metrics.id "
@@ -69,6 +80,17 @@ namespaces(Collection, Metric) ->
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:namespaces] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
+    {ok, strip_tpl(Rows)}.
+
+tags(Collection, Namespace) ->
+    Q = "SELECT DISTINCT(name) FROM tags "
+        "LEFT JOIN metrics ON tags.metric_id = metrics.id "
+        "WHERE metrics.collection = $1 AND tags.namespace = $2",
+    Vs = [Collection, Namespace],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:tags/3] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
@@ -81,6 +103,17 @@ tags(Collection, Metric, Namespace) ->
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:tags/3] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
+    {ok, strip_tpl(Rows)}.
+
+values(Collection, Namespace, Tag) ->
+    Q = "SELECT DISTINCT(value) FROM tags "
+        "LEFT JOIN metrics ON tags.metric_id = metrics.id "
+        "WHERE metrics.collection = $1 AND tags.namespace = $2 AND name = $3",
+    Vs = [Collection, Namespace, Tag],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:values/4] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
