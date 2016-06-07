@@ -11,6 +11,7 @@ CREATE TABLE metrics (
     bucket      varchar NOT NULL,
     key         bytea NOT NULL
 );
+
 GRANT ALL On metrics TO ddb;
 GRANT ALL On metrics_id_seq TO ddb;
 
