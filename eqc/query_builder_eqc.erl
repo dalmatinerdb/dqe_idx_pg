@@ -85,4 +85,5 @@ connect() ->
                                              {timeout, 4000}]).
 
 close(C) ->
+    ok = epgsql:sync(C),
     epgsql:close(C).
