@@ -5,8 +5,8 @@
 -export([
          init/0,
          lookup/1, lookup/2, lookup_tags/1,
-         collections/0, metrics/1, namespaces/2, tags/3, values/4,
-         expand/2,
+         collections/0, metrics/1, namespaces/1, namespaces/2,
+         tags/2, tags/3, values/3, values/4, expand/2,
          add/4, add/5, update/5,
          delete/4, delete/5
         ]).
@@ -33,11 +33,20 @@ collections() ->
 metrics(Collection) ->
     dqe_idx_pg:metrics(Collection).
 
+namespaces(Collection) ->
+    dqe_idx_pg:namespaces(Collection).
+
 namespaces(Collection, Metric) ->
     dqe_idx_pg:namespaces(Collection, Metric).
 
+tags(Coallection, Namespace) ->
+    dqe_idx_pg:tags(Coallection, Namespace).
+
 tags(Collection, Metric, Namespace) ->
     dqe_idx_pg:tags(Collection, Metric, Namespace).
+
+values(Collection, Namespace, Tag) ->
+    dqe_idx_pg:values(Collection, Namespace, Tag).
 
 values(Collection, Metric, Namespace, Tag) ->
     dqe_idx_pg:values(Collection, Metric, Namespace, Tag).
