@@ -5,8 +5,9 @@
 -export([
          init/0,
          lookup/1, lookup/2, lookup_tags/1,
-         collections/0, metrics/1, namespaces/1, namespaces/2, tags/2,
-         tags/3, values/3, values/4, expand/2, add/4, add/5, update/5,
+         collections/0, metrics/1, namespaces/1, namespaces/2,
+         tags/2, tags/3, values/3, values/4, expand/2,
+         add/4, add/5, update/5,
          delete/4, delete/5
         ]).
 

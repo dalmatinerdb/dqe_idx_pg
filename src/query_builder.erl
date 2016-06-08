@@ -25,7 +25,7 @@ lookup_query({in, Collection, Metric}, Grouping) ->
              "WHERE collection = $1 AND metric = $2 ",
              grouping_where(GroupingNames, 3)],
     Values = [Collection, Metric | Grouping],
-    {ok, Query, Values};
+   {ok, Query, Values};
 lookup_query({in, Bucket, Metric, Where}, Grouping) ->
     GroupingCount = length(Grouping),
     GroupingNames = grouping_names(GroupingCount),
@@ -147,11 +147,15 @@ build_tag_lookup({'=', {tag, NS, K}, V}, NIn, Vals) ->
            " AND value = $", i2l(NIn+2), ")"],
     {NIn+3, [NS, K, V | Vals], Str}.
 
+%% The GROUP BY operation is realized by a series of join operations to the
+%% tags table, where an alias is assigned for every join to the table.
 grouping_names(0) ->
     [];
 grouping_names(N) ->
     ["g" ++ i2l(I) || I <- lists:seq(1, N)].
 
+%% Uses postgres constructor syntax to create an array of tag values
+%% https://www.postgresql.org/docs/9.1/static/arrays.html
 grouping_select([]) ->
     " ";
 grouping_select([Name | R]) ->
