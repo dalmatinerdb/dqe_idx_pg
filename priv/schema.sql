@@ -14,10 +14,15 @@ CREATE TABLE metrics (
 GRANT ALL On metrics TO ddb;
 GRANT ALL On metrics_id_seq TO ddb;
 
+CREATE UNIQUE INDEX metrics_idx_id ON metrics (id);
 CREATE UNIQUE INDEX metrics_idx ON metrics (collection, metric, bucket, key);
+CREATE UNIQUE INDEX metrics_idx_id_collection ON metrics (id, collection);
+CREATE INDEX metrics_idx_collection ON metrics USING btree (collection);
+CREATE INDEX metrics_idx_metric ON metrics USING btree (metric);
 
 CREATE TABLE tags (
     metric_id bigserial REFERENCES metrics (id) ON DELETE CASCADE,
+    collection  varchar NOT NULL,
     namespace   text NOT NULL,
     name        text NOT NULL,
     value       text NOT NULL,
@@ -28,26 +33,13 @@ GRANT ALL On tags TO ddb;
 
 CREATE UNIQUE INDEX tags_idx ON tags (metric_id, namespace, name, value);
 CREATE UNIQUE INDEX tags_name_idx ON tags (metric_id, namespace, name);
+
 CREATE INDEX tags_idx_metric_id ON tags (metric_id);
-CREATE INDEX tags_idx_name ON tags (namespace, name);
+CREATE INDEX tags_idx_namespace_name ON tags (namespace, name);
+CREATE INDEX tags_idx_id_namespace ON tags (metric_id, namespace);
 CREATE INDEX tags_idx_namespace_name_value ON tags (namespace, name, value);
-CREATE INDEX tags_idx_value ON tags (value);
-
-
--- List all bucket
--- SELECT DISTINCT(bucket) FROM metrics;
-
--- List all metrics in a bucket
--- SELECT DISTINCT(metric) FROM metrics WHERE bucket = 'bucket';
-
--- List all names/namepaces for a metric
--- SELECT DISTINCT(namespace) FROM tags LEFT JOIN metrics ON tags.metric_id = metrics.id WHERE metrics.collection = 'bucket' AND metrics.metric = 'metric';
-
--- List all names for a metric/namespace
--- SELECT DISTINCT(name) FROM tags LEFT JOIN metrics ON tags.metric_id = metrics.id WHERE metrics.collection = 'bucket' AND metrics.metric = 'metric' AND tags.namespace = 'ddb';
-
--- List all names/namepaces for a metric
--- SELECT DISTINCT(namespace, name) FROM tags LEFT JOIN metrics ON tags.metric_id = metrics.id WHERE metrics.collection = 'bucket' AND metrics.metric = 'metric';
-
--- List all values for a name/namespace
--- SELECT DISTINCT(value) FROM tags LEFT JOIN metrics ON tags.metric_id = metrics.id WHERE metrics.collection = 'bucket' AND metrics.metric = 'metric' AND tags.namespace = '' AND  tags.name = 'what';
+CREATE INDEX tags_idx_value ON tags USING btree (value);
+-- for lookups
+CREATE INDEX tags_idx_collection ON tags USING btree (collection);
+CREATE INDEX tags_idx_name ON tags USING btree (name);
+CREATE INDEX tags_idx_namespace ON tags USING btree (namespace);

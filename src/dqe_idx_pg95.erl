@@ -1,3 +1,4 @@
+
 -module(dqe_idx_pg95).
 -behaviour(dqe_idx).
 
@@ -90,7 +91,7 @@ add(Collection, Metric, Bucket, Key, NVs) ->
         ok ->
             ok;
         {ok, MID} ->
-            {Q, Vs} = add_tags(MID, NVs),
+            {Q, Vs} = add_tags(MID, Collection, NVs),
             T0 = erlang:system_time(),
             case pgapp:equery(Q, Vs) of
                 {ok, _, _} ->
@@ -115,7 +116,7 @@ update(Collection, Metric, Bucket, Key, NVs) ->
              end,
     case AddRes of
         {ok, MID} ->
-            {Q, Vs} = update_tags(MID, NVs),
+            {Q, Vs} = update_tags(MID, Collection, NVs),
             T0 = erlang:system_time(),
             case pgapp:equery(Q, Vs) of
                 {ok, _, _} ->
@@ -143,28 +144,31 @@ delete(Collection, Metric, Bucket, Key, Tags) ->
 %% Internal functions
 %%====================================================================
 
-add_tags(MID, Tags) ->
-    Q = "INSERT INTO tags (metric_id, namespace, name, value) VALUES ",
+add_tags(MID, Collection, Tags) ->
+    Q = "INSERT INTO tags (metric_id, collection, namespace, name, value) "
+        "VALUES ",
     OnConflict = "DO NOTHING",
-    build_tags(MID, 1, OnConflict, Tags, Q, []).
+    build_tags(MID, Collection, 1, OnConflict, Tags, Q, []).
 
-update_tags(MID, Tags) ->
-    Q = "INSERT INTO tags (metric_id, namespace, name, value) VALUES ",
+update_tags(MID, Collection, Tags) ->
+    Q = "INSERT INTO tags (metric_id, collection, namespace, name, value) "
+        "VALUES ",
     OnConflict = "ON CONSTRAINT tags_metric_id_namespace_name_key "
         "DO UPDATE SET value = excluded.value",
-    build_tags(MID, 1, OnConflict, Tags, Q, []).
+    build_tags(MID, Collection, 1, OnConflict, Tags, Q, []).
 
-build_tags(MID, P, OnConflict, [{NS, N, V}], Q, Vs) ->
+build_tags(MID, Collection, P, OnConflict, [{NS, N, V}], Q, Vs) ->
     {[Q, tag_values(P), " ON CONFLICT ", OnConflict],
-     lists:reverse([V, N, NS, MID | Vs])};
+     lists:reverse([V, N, NS, Collection, MID | Vs])};
 
-build_tags(MID, P, OnConflict, [{NS, N, V} | Tags], Q, Vs) ->
+build_tags(MID, Collection, P, OnConflict, [{NS, N, V} | Tags], Q, Vs) ->
     Q1 = [Q, tag_values(P), ","],
-    Vs1 = [V, N, NS, MID | Vs],
-    build_tags(MID, P+4, OnConflict, Tags, Q1, Vs1).
+    Vs1 = [V, N, NS, Collection, MID | Vs],
+    build_tags(MID, Collection, P+5, OnConflict, Tags, Q1, Vs1).
 
 tag_values(P)  ->
     [" ($", query_builder:i2l(P), ", "
      "$", query_builder:i2l(P + 1), ", "
      "$", query_builder:i2l(P + 2), ", "
-     "$", query_builder:i2l(P + 3), ")"].
+     "$", query_builder:i2l(P + 3), ", "
+     "$", query_builder:i2l(P + 4), ")"].

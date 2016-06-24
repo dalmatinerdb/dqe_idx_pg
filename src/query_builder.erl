@@ -141,7 +141,7 @@ build_tag_lookup({'or', L, R}, N, TagPairs) ->
     {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
     {N2, TagPairs2, ["(", Str1, " OR ", Str2, ")"]};
 build_tag_lookup({'=', {tag, NS, K}, V}, NIn, Vals) ->
-    Str = ["id In (SELECT metric_id FROM tags WHERE ",
+    Str = ["id IN (SELECT metric_id FROM tags WHERE ",
            " namespace = $", i2l(NIn),
            " AND name = $", i2l(NIn+1),
            " AND value = $", i2l(NIn+2), ")"],

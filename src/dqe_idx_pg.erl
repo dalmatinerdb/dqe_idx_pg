@@ -44,7 +44,14 @@ lookup_tags(Query) ->
     {ok, Rows}.
 
 collections() ->
-    Q = "SELECT DISTINCT collection FROM metrics",
+    Q = "WITH RECURSIVE t AS ("
+        "   SELECT MIN(collection) AS collection FROM metrics"
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(collection) FROM metrics "
+        "     WHERE collection > t.collection)"
+        "   FROM t WHERE t.collection IS NOT NULL"
+        "   )"
+        "SELECT collection FROM t WHERE collection IS NOT NULL",
     Vs = [],
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
@@ -62,9 +69,16 @@ metrics(Collection) ->
     {ok, strip_tpl(Rows)}.
 
 namespaces(Collection) ->
-    Q = "SELECT DISTINCT(namespace) FROM tags "
-        "LEFT JOIN metrics ON tags.metric_id = metrics.id "
-        "WHERE metrics.collection = $1",
+    Q = "WITH RECURSIVE t AS ("
+        "   SELECT MIN(namespace) AS namespace FROM tags"
+        "     WHERE collection = $1"
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(namespace) FROM tags"
+        "     WHERE namespace > t.namespace"
+        "     AND collection = $1)"
+        "   FROM t WHERE t.namespace IS NOT NULL"
+        "   )"
+        "SELECT namespace FROM t WHERE namespace IS NOT NULL",
     Vs = [Collection],
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
@@ -84,9 +98,18 @@ namespaces(Collection, Metric) ->
     {ok, strip_tpl(Rows)}.
 
 tags(Collection, Namespace) ->
-    Q = "SELECT DISTINCT(name) FROM tags "
-        "LEFT JOIN metrics ON tags.metric_id = metrics.id "
-        "WHERE metrics.collection = $1 AND tags.namespace = $2",
+    Q = "WITH RECURSIVE t AS ("
+        "   SELECT MIN(name) AS name FROM tags"
+        "     WHERE collection = $1"
+        "     AND namespace = $2"
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(name) FROM tags"
+        "     WHERE name > t.name"
+        "     AND collection = $1"
+        "     AND namespace = $2)"
+        "   FROM t WHERE t.name IS NOT NULL"
+        "   )"
+        "SELECT name FROM t WHERE name IS NOT NULL",
     Vs = [Collection, Namespace],
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
