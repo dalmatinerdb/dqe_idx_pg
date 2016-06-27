@@ -228,8 +228,8 @@ add(Collection, Metric, Bucket, Key)
 
             {ok, ID};
         E ->
-            lager:info("[dqe_idx:pg:add/4] Query failed after ~pms: ~s <- ~p",
-                       [dqe_idx_pg:tdelta(T0), Q, Vs]),
+            lager:info("[dqe_idx:pg:add/4] Query failed after ~pms: ~s <- ~p:"
+                       " ~p", [dqe_idx_pg:tdelta(T0), Q, Vs, E]),
             E
     end.
 
@@ -260,7 +260,8 @@ add(Collection, Metric, Bucket, Key, NVs)
                     {ok, MID};
                 E ->
                     lager:info("[dqe_idx:pg:add/5] Query failed after ~pms: "
-                               "~s <- ~p", [dqe_idx_pg:tdelta(T0), Q, Vs]),
+                               "~s <- ~p: E",
+                               [dqe_idx_pg:tdelta(T0), Q, Vs, E]),
                     E
             end;
         EAdd ->
@@ -296,8 +297,8 @@ update(Collection, Metric, Bucket, Key, NVs)
                     {ok, MID};
                 E ->
                     lager:info("[dqe_idx:pg:update/5] Query failed after ~pms:"
-                               " ~s <- ~p",
-                               [dqe_idx_pg:tdelta(T0), Q, Vs]),
+                               " ~s <- ~p: ~p",
+                               [dqe_idx_pg:tdelta(T0), Q, Vs, E]),
                     E
             end;
         EAdd ->
@@ -324,7 +325,7 @@ delete(Collection, Metric, Bucket, Key)
             ok;
         E ->
             lager:info("[dqe_idx:pg:delete/4] Query failed after ~pms: "
-                       "~s <- ~p", [tdelta(T0), Q, Vs]),
+                       "~s <- ~p: ~p", [tdelta(T0), Q, Vs, E]),
             E
     end.
 
@@ -387,7 +388,7 @@ get_id(Collection, Metric, Bucket, Key) ->
             not_found;
         E ->
             lager:info("[dqe_idx:pg:get_id/4] Query failed after ~pms:"
-                       " ~s <- ~p", [tdelta(T0), Q, Vs]),
+                       " ~s <- ~p: ~p", [tdelta(T0), Q, Vs, E]),
             E
     end.
 
