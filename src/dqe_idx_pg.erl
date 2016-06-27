@@ -61,9 +61,18 @@ collections() ->
     {ok, strip_tpl(Rows)}.
 
 metrics(Collection) when is_binary(Collection) ->
-    Q = "SELECT DISTINCT metric FROM "
+    Q = "WITH RECURSIVE t AS ("
+        "   SELECT MIN(metric) AS metric FROM "
         ?MET_TABLE
-        " WHERE collection = $1",
+        "     WHERE collection = $1"
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(metric) FROM "
+        ?MET_TABLE
+        "     WHERE metric > t.metric"
+        "     AND collection = $1)"
+        "   FROM t WHERE t.metric IS NOT NULL"
+        "   )"
+        "SELECT metric FROM t WHERE metric IS NOT NULL",
     Vs = [Collection],
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),

@@ -37,11 +37,12 @@ CREATE UNIQUE INDEX dimensions_name_idx ON dimensions (metric_id, namespace, nam
 CREATE INDEX dimensions_idx_metric_id ON dimensions (metric_id);
 CREATE INDEX dimensions_idx_namespace_name ON dimensions (namespace, name);
 CREATE INDEX dimensions_idx_id_namespace ON dimensions (metric_id, namespace);
-CREATE INDEX dimensions_idx_namespace_name_value ON dimensions (namespace, name, value);
+CREATE INDEX dimensions_idx_namespace_name_value ON dimensions USING btree  (namespace, name, value);
 CREATE INDEX dimensions_idx_value ON dimensions USING btree (value);
-CREATE INDEX tags_idx_collection_namespace ON tags (collection, namespace);
+CREATE INDEX dimensions_idx_collection_namespace ON dimensions USING btree (collection, namespace);
 -- for lookups
 CREATE INDEX dimensions_idx_collection ON dimensions USING btree (collection);
 CREATE INDEX dimensions_idx_name ON dimensions USING btree (name);
 CREATE INDEX dimensions_idx_namespace ON dimensions USING btree (namespace);
 CREATE INDEX dimensions_idx_collection_namespace_name ON dimensions USING btree (collection, namespace, name);
+CREATE INDEX dimensions_idx_collection_namespace_name_value ON dimensions USING btree (collection, namespace, name, value);
