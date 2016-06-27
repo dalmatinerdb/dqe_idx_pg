@@ -254,7 +254,7 @@ add(Collection, Metric, Bucket, Key, NVs)
             {Q, Vs} = add_tags(MID, Collection, NVs),
             T0 = erlang:system_time(),
             case pgapp:equery(Q, Vs) of
-                {ok, _, _} ->
+                {ok, _} ->
                     lager:debug("[dqe_idx:pg:add/5] Query too ~pms: ~s <- ~p",
                                 [dqe_idx_pg:tdelta(T0), Q, Vs]),
                     {ok, MID};
