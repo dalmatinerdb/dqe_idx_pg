@@ -152,12 +152,20 @@ values(Collection, Namespace, Tag)
   when is_binary(Collection),
        is_binary(Namespace),
        is_binary(Tag) ->
-    Q = "SELECT DISTINCT(value) FROM " ?DIM_TABLE " "
-        "LEFT JOIN " ?MET_TABLE " "
-        "ON " ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
-        "WHERE " ?MET_TABLE ".collection = $1 "
-        "AND " ?DIM_TABLE ".namespace = $2 "
-        "AND name = $3",
+    Q = "WITH RECURSIVE t AS ("
+        "   SELECT MIN(value) AS value FROM " ?DIM_TABLE
+        "     WHERE collection = $1"
+        "     AND namespace = $2"
+        "     AND name = $3"
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(value) FROM " ?DIM_TABLE
+        "     WHERE value > t.value"
+        "     AND collection = $1"
+        "     AND namespace = $2"
+        "     AND name = $3)"
+        "   FROM t WHERE t.value IS NOT NULL"
+        "   )"
+        "SELECT value FROM t WHERE value IS NOT NULL",
     Vs = [Collection, Namespace, Tag],
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
