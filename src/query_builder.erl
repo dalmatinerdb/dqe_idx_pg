@@ -2,36 +2,38 @@
 -export([lookup_query/2, lookup_tags_query/1, add_tags/2, update_tags/2,
          glob_query/2, i2l/1]).
 
--define(TAG_TABLE, "tags").
--define(METRIC_TABLE, "metrics").
+-include("dqe_idx_pg.hrl").
 
 %%====================================================================
 %% API
 %%====================================================================
 
-lookup_query({in, Collection, Metric}, Groupings) when is_list(Metric) ->
-    MetricBin = dproto:metric_from_list(Metric),
-    lookup_query({in, Collection, MetricBin}, Groupings);
-lookup_query({in, Collection, Metric, Where}, Groupings) when is_list(Metric) ->
-    MetricBin = dproto:metric_from_list(Metric),
-    lookup_query({in, Collection, MetricBin, Where}, Groupings);
+lookup_query({in, Collection, Metric}, Groupings)
+  when is_binary(Metric) ->
+    MetricL = dproto:metric_to_list(Metric),
+    lookup_query({in, Collection, MetricL}, Groupings);
+lookup_query({in, Collection, Metric, Where}, Groupings)
+  when is_binary(Metric) ->
+    MetricL = dproto:metric_to_list(Metric),
+    lookup_query({in, Collection, MetricL, Where}, Groupings);
 lookup_query({in, Collection, Metric}, Grouping) ->
     GroupingCount = length(Grouping),
     GroupingNames = grouping_names(GroupingCount),
     Query = ["SELECT DISTINCT bucket, key ",
              grouping_select(GroupingNames),
-             "FROM ", ?METRIC_TABLE, " ",
+             "FROM ", ?MET_TABLE, " ",
              grouping_join(GroupingNames),
              "WHERE collection = $1 AND metric = $2 ",
              grouping_where(GroupingNames, 3)],
     Values = [Collection, Metric | Grouping],
     {ok, Query, Values};
-lookup_query({in, Bucket, Metric, Where}, Grouping) ->
+lookup_query({in, Bucket, Metric, Where}, Grouping)
+  when is_list(Metric) ->
     GroupingCount = length(Grouping),
     GroupingNames = grouping_names(GroupingCount),
     Query = ["SELECT DISTINCT bucket, key",
              grouping_select(GroupingNames),
-             "FROM ", ?METRIC_TABLE, " ",
+             "FROM ", ?MET_TABLE, " ",
              grouping_join(GroupingNames),
              "WHERE collection = $1 AND metric = $2 ",
              grouping_where(GroupingNames, 3),
@@ -40,23 +42,25 @@ lookup_query({in, Bucket, Metric, Where}, Grouping) ->
     Values = [Bucket, Metric | Grouping ++ TagPairs],
     {ok, Query ++ TagPredicate, Values}.
 
-lookup_tags_query({in, Collection, Metric}) when is_list(Metric) ->
-    lookup_tags_query({in, Collection, dproto:metric_from_list(Metric)});
-lookup_tags_query({in, Collection, Metric, Where}) when is_list(Metric) ->
-    lookup_tags_query({in, Collection, dproto:metric_from_list(Metric), Where});
-lookup_tags_query({in, Collection, Metric}) ->
+lookup_tags_query({in, Collection, Metric}) when is_binary(Metric) ->
+    lookup_tags_query({in, Collection, dproto:metric_to_list(Metric)});
+lookup_tags_query({in, Collection, Metric, Where}) when is_binary(Metric) ->
+    lookup_tags_query({in, Collection, dproto:metric_to_list(Metric), Where});
+lookup_tags_query({in, Collection, Metric})
+  when is_list(Metric) ->
     Query = "SELECT DISTINCT namespace, name, value "
-        "FROM " ?TAG_TABLE " "
-        "LEFT JOIN " ?METRIC_TABLE " ON "
-        ?TAG_TABLE ".metric_id = " ?METRIC_TABLE ".id "
+        "FROM " ?DIM_TABLE " "
+        "LEFT JOIN " ?MET_TABLE " ON "
+        ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
         "WHERE collection = $1 and metric = $2",
     Values = [Collection, Metric],
     {ok, Query, Values};
-lookup_tags_query({in, Bucket, Metric, Where}) ->
+lookup_tags_query({in, Bucket, Metric, Where})
+  when is_list(Metric) ->
     Query = "SELECT DISTINCT namespace, name, value "
-        "FROM " ?TAG_TABLE " "
-        "LEFT JOIN " ?METRIC_TABLE " ON "
-        ?TAG_TABLE ".metric_id = id "
+        "FROM " ?DIM_TABLE " "
+        "LEFT JOIN " ?MET_TABLE " ON "
+        ?DIM_TABLE ".metric_id = id "
         "WHERE collection = $1 and metric = $2"
         "AND ",
     {_N, TagPairs, TagPredicate} = build_tag_lookup(Where),
@@ -65,7 +69,7 @@ lookup_tags_query({in, Bucket, Metric, Where}) ->
 
 glob_query(Bucket, Globs) ->
     Query = ["SELECT DISTINCT key ",
-             "FROM ", ?METRIC_TABLE, " ",
+             "FROM ", ?MET_TABLE, " ",
              "WHERE bucket = $1 AND "],
     GlobWheres = [and_tags(glob_to_tags(Glob))
                   || Glob <- Globs],
@@ -73,7 +77,6 @@ glob_query(Bucket, Globs) ->
     {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 2),
     Values = [Bucket | TagPairs],
     {ok, Query ++ TagPredicate, Values}.
-
 
 add_tags(MID, Tags) ->
     Fn = "add_tag",
@@ -170,8 +173,8 @@ grouping_where([Name | R], Pos) ->
 grouping_join([]) ->
     " ";
 grouping_join([N | R]) ->
-    ["INNER JOIN ", ?TAG_TABLE, " AS ", N,
-     " ON ", N, ".metric_id = ", ?METRIC_TABLE ".id " | grouping_join(R)].
+    ["INNER JOIN ", ?DIM_TABLE, " AS ", N,
+     " ON ", N, ".metric_id = ", ?MET_TABLE ".id " | grouping_join(R)].
 
 i2l(I) ->
     integer_to_list(I).
