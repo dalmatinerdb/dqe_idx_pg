@@ -203,7 +203,17 @@ expand(Bucket, Globs) when
                  {ok, MetricIdx::non_neg_integer()} |
                  {error, Error::term()}.
 
-add(Collection, Metric, Bucket, Key) ->
+add(Collection, Metric, Bucket, Key) when is_binary(Metric) ->
+    add(Collection, dproto:metric_to_list(Metric), Bucket, Key);
+
+add(Collection, Metric, Bucket, Key) when is_binary(Key) ->
+    add(Collection, Metric, Bucket, dproto:metric_to_list(Key));
+
+add(Collection, Metric, Bucket, Key)
+  when is_binary(Collection),
+       is_list(Metric),
+       is_binary(Bucket),
+       is_list(Key) ->
     Q = "INSERT INTO " ?MET_TABLE " (collection, metric, bucket, key) VALUES "
         "($1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING id",
     Vs = [Collection, Metric, Bucket, Key],
@@ -226,7 +236,17 @@ add(Collection, Metric, Bucket, Key) ->
 add(Collection, Metric, Bucket, Key, []) ->
     add(Collection, Metric, Bucket, Key);
 
-add(Collection, Metric, Bucket, Key, NVs) ->
+add(Collection, Metric, Bucket, Key, NVs) when is_binary(Metric) ->
+    add(Collection, dproto:metric_to_list(Metric), Bucket, Key, NVs);
+
+add(Collection, Metric, Bucket, Key, NVs) when is_binary(Key) ->
+    add(Collection, Metric, Bucket, dproto:metric_to_list(Key), NVs);
+
+add(Collection, Metric, Bucket, Key, NVs)
+  when is_binary(Collection),
+       is_list(Metric),
+       is_binary(Bucket),
+       is_list(Key) ->
     case add(Collection, Metric, Bucket, Key) of
         ok ->
             ok;
@@ -247,7 +267,17 @@ add(Collection, Metric, Bucket, Key, NVs) ->
             EAdd
     end.
 
-update(Collection, Metric, Bucket, Key, NVs) ->
+update(Collection, Metric, Bucket, Key, NVs) when is_binary(Metric) ->
+    update(Collection, dproto:metric_to_list(Metric), Bucket, Key, NVs);
+
+update(Collection, Metric, Bucket, Key, NVs) when is_binary(Key) ->
+    update(Collection, Metric, Bucket, dproto:metric_to_list(Key), NVs);
+
+update(Collection, Metric, Bucket, Key, NVs)
+  when is_binary(Collection),
+       is_list(Metric),
+       is_binary(Bucket),
+       is_list(Key) ->
     AddRes = case add(Collection, Metric, Bucket, Key) of
                  ok ->
                      get_id(Collection, Metric, Bucket, Key);
@@ -274,7 +304,15 @@ update(Collection, Metric, Bucket, Key, NVs) ->
             EAdd
     end.
 
-delete(Collection, Metric, Bucket, Key) ->
+delete(Collection, Metric, Bucket, Key) when is_binary(Metric) ->
+    delete(Collection, dproto:metric_to_list(Metric), Bucket, Key);
+delete(Collection, Metric, Bucket, Key) when is_binary(Key) ->
+    delete(Collection, Metric, Bucket, dproto:metric_to_list(Key));
+delete(Collection, Metric, Bucket, Key)
+  when is_binary(Collection),
+       is_list(Metric),
+       is_binary(Bucket),
+       is_list(Key) ->
     Q = "DELETE FROM " ?MET_TABLE " WHERE collection = $1 AND " ++
         "metric = $2 AND bucket = $3 AND key = $4",
     Vs = [Collection, Metric, Bucket, Key],
@@ -290,6 +328,10 @@ delete(Collection, Metric, Bucket, Key) ->
             E
     end.
 
+delete(Collection, Metric, Bucket, Key, NVs) when is_binary(Metric) ->
+    delete(Collection, dproto:metric_to_list(Metric), Bucket, Key, NVs);
+delete(Collection, Metric, Bucket, Key, NVs) when is_binary(Key) ->
+    delete(Collection, Metric, Bucket, dproto:metric_to_list(Key), NVs);
 delete(Collection, Metric, Bucket, Key, Tags) ->
     case get_id(Collection, Metric, Bucket, Key) of
         not_found ->
