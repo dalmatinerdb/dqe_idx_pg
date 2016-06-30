@@ -214,9 +214,10 @@ expand(Bucket, Globs) when
     {ok, {Bucket, Rows1}}.
 
 -spec add(Collection::binary(),
-          Metric::binary(),
+          Metric::binary() | list(),
           Bucket::binary(),
-          Key::binary()) ->
+          Key::binary() | list()) ->
+                 ok |
                  {ok, MetricIdx::non_neg_integer()} |
                  {error, Error::term()}.
 
