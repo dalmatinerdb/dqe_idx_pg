@@ -34,7 +34,8 @@ lookup(Query, Groupings) ->
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:lookup/2] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
-    {ok, Rows}.
+    R = [{B, dproto:metric_from_list(M)} || {B, M} <- Rows],
+    {ok, R}.
 
 lookup_tags(Query) ->
     {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
@@ -78,7 +79,8 @@ metrics(Collection) when is_binary(Collection) ->
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:metrics] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
-    {ok, strip_tpl(Rows)}.
+    R = [dproto:metric_from_list(M) || {M} <- Rows],
+    {ok, R}.
 
 namespaces(Collection) when is_binary(Collection) ->
     Q = "WITH RECURSIVE t AS ("
