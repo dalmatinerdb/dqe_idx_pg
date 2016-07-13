@@ -212,8 +212,8 @@ expand(Bucket, Globs) when
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:expand/2] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
-    Rows1 = [K || {K} <- Rows],
-    {ok, {Bucket, Rows1}}.
+    Metrics = [dproto:metric_from_list(M) || {M} <- Rows],
+    {ok, {Bucket, Metrics}}.
 
 -spec add(Collection::binary(),
           Metric::binary() | list(),
