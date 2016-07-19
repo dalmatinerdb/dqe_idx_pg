@@ -4,6 +4,6 @@
   [{server, {"127.0.0.1", 5432}},
    {size, 1},
    {max_overflow, 0},
-   {database, "metric_metadata"},
+   {database, "metric_metadata_v2"},
    {username, "ddb"},
    {password, "ddb"}]}].
