@@ -17,7 +17,7 @@
 
 %% @doc Initial number of conneciton pool workers
 {mapping, "idx.pg.database", "dqe_idx_pg.database",
- [{default, "metric_metadata_v2"},
+ [{default, "metric_metadata"},
   {datatype, string}]}.
 
 %% @doc Username for the conection
