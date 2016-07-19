@@ -71,12 +71,8 @@ glob_query(Bucket, Globs) ->
     Query = ["SELECT DISTINCT key ",
              "FROM ", ?MET_TABLE, " ",
              "WHERE bucket = $1 AND "],
-    GlobWheres = [and_tags(glob_to_tags(Glob))
-                  || Glob <- Globs],
-    Where = or_tags(GlobWheres),
-    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 2),
-    Values = [Bucket | TagPairs],
-    {ok, Query ++ TagPredicate, Values}.
+    GlobWheres = [glob_where(Bucket, Query, Glob) || Glob <- Globs],
+    {ok, GlobWheres}.
 
 add_tags(MID, Tags) ->
     Fn = "add_tag",
@@ -104,15 +100,16 @@ update_tags(MID, Tags) ->
 %% Internal functions
 %%====================================================================
 
+glob_where(Bucket, Query, Glob) ->
+    Where = and_tags(glob_to_tags(Glob)),
+    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 2),
+    Values = [Bucket | TagPairs],
+    {Query ++ TagPredicate, Values}.
+
 and_tags([E]) ->
     E;
 and_tags([E| R]) ->
     {'and', E, and_tags(R)}.
-
-or_tags([E]) ->
-    E;
-or_tags([E| R]) ->
-    {'or', E, or_tags(R)}.
 
 glob_to_tags(Glob) ->
     glob_to_tags(Glob, 1,
