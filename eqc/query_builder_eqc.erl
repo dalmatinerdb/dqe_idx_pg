@@ -16,15 +16,20 @@
 %%%-------------------------------------------------------------------
 %%% Generators
 %%%-------------------------------------------------------------------
+non_empty_list(T) ->
+    ?SUCHTHAT(L, list(T), L /= []).
 
-collection() ->
-    ?LAZY(oneof([<<"collection1">>,
-                 <<"collection2">>,
-                 <<"collection3">>])).
+non_empty_string() ->
+    ?SUCHTHAT(L, list(choose($a, $z)), length(L) >= 2).
+
+non_empty_binary() ->
+    ?LET(L, non_empty_string(), list_to_binary(L)).
+
+bucket() ->
+    non_empty_binary().
 
 metric() ->
-    ?LAZY(oneof([[<<"base">>, <<"cpu">>],
-                 [<<"bytes">>, <<"sent">>]])).
+    non_empty_list(non_empty_binary()).
 
 globs() ->
     ?LAZY(non_empty(list(glob()))).
@@ -52,8 +57,8 @@ where(Size) ->
                 ])).
 
 query() ->
-    oneof([{'in', collection(), metric()},
-           {'in', collection(), metric(), where()}]).
+    oneof([{'in', bucket(), metric()},
+           {'in', bucket(), metric(), where()}]).
 
 %%%-------------------------------------------------------------------
 %%% Properties
@@ -69,7 +74,7 @@ prop_lookup_queries_valid() ->
             end).
 
 prop_glob_queries_valid() ->
-    ?FORALL({Bucket, Globs}, {collection(), globs()},
+    ?FORALL({Bucket, Globs}, {bucket(), globs()},
             begin
                 {ok, C} = connect(),
                 {ok, QueryStr, _Values} = query_builder:glob_query(Bucket,
@@ -78,7 +83,6 @@ prop_glob_queries_valid() ->
                 close(C),
                 Res == ok
             end).
-
 
 connect() ->
     epgsql:connect(?HOST, ?USER, ?PASSWORD, [{database, ?DATABASE},

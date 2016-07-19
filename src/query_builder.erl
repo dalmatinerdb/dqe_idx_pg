@@ -147,8 +147,6 @@ build_tag_lookup({'=', {tag, NS, K}, V}, NIn, Vals) ->
            " AND value = $", i2l(NIn+2), ")"],
     {NIn+3, [NS, K, V | Vals], Str}.
 
-%% The GROUP BY operation is realized by a series of join operations to the
-%% tags table, where an alias is assigned for every join to the table.
 grouping_names(0) ->
     [];
 grouping_names(N) ->
@@ -171,6 +169,8 @@ grouping_where([], _) ->
 grouping_where([Name | R], Pos) ->
     ["AND ", Name, ".name = $",  i2l(Pos), " " | grouping_where(R, Pos + 1)].
 
+%% The GROUP BY operation is realized by a series of join operations to the
+%% tags table, where an alias is assigned for every join to the table.
 grouping_join([]) ->
     " ";
 grouping_join([N | R]) ->
