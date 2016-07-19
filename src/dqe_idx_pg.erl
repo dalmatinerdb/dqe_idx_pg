@@ -208,14 +208,14 @@ expand(Bucket, Globs) when
       is_binary(Bucket),
       is_list(Globs) ->
     {ok, QueryMap} = query_builder:glob_query(Bucket, Globs),
-    Rows0 = [begin
-                 T0 = erlang:system_time(),
-                 {ok, _Cols, Rows0} = pgapp:equery(Q, Vs),
-                 lager:debug("[dqe_idx:pg:expand/2] Query took ~pms: ~s <- ~p",
-                             [tdelta(T0), Q, Vs]),
-                 Rows0
-             end || {Q, Vs} <- QueryMap],
-    Rows = lists:flatten(Rows0),
+    RowList = [begin
+                   T0 = erlang:system_time(),
+                   {ok, _Cols, Rows0} = pgapp:equery(Q, Vs),
+                   lager:debug("[dqe_idx:pg:expand/2]Query took ~pms: ~s <- ~p",
+                               [tdelta(T0), Q, Vs]),
+                   Rows0
+               end || {Q, Vs} <- QueryMap],
+    Rows = lists:flatten(RowList),
     Metrics = [dproto:metric_from_list(M) || {M} <- Rows],
     {ok, {Bucket, Metrics}}.
 
