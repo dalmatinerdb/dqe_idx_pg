@@ -220,6 +220,8 @@ expand(Bucket, Globs) when
                    sets:from_list(Rows)
                end || {Q, Vs} <- QueryMap],
 
+    %% Destructuring into [H | T] is safe since the cardinality of `RowSets' is
+    %% equal to that of `Globs'
     [H | T] = RowSets,
     UniqueRows = lists:foldl(fun sets:union/2, H, T),
     Metrics = [dproto:metric_from_list(M) || {M} <- sets:to_list(UniqueRows)],
