@@ -204,6 +204,9 @@ values(Collection, Metric, Namespace, Tag)
                 [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
+expand(Bucket, []) when is_binary(Bucket) ->
+    {ok, {Bucket, []}};
+
 expand(Bucket, Globs) when
       is_binary(Bucket),
       is_list(Globs) ->
@@ -217,7 +220,8 @@ expand(Bucket, Globs) when
                    sets:from_list(Rows)
                end || {Q, Vs} <- QueryMap],
 
-    UniqueRows = lists:foldl(fun sets:union/2, sets:new(), RowSets),
+    [H | T] = RowSets,
+    UniqueRows = lists:foldl(fun sets:union/2, H, T),
     Metrics = [dproto:metric_from_list(M) || {M} <- sets:to_list(UniqueRows)],
     {ok, {Bucket, Metrics}}.
 
