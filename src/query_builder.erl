@@ -38,8 +38,13 @@ lookup_query({in, Bucket, Metric, Where}, Grouping)
              "WHERE " ?MET_TABLE ".collection = $1 AND metric = $2 ",
              grouping_where(GroupingNames, 3),
              "AND "],
-    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 3 + GroupingCount),
-    Values = [Bucket, Metric | Grouping ++ TagPairs],
+    {_N, TagPairs, TagPredicate} =
+        %% We need to multipy count by two since we got names
+        %% and namespcaes
+        build_tag_lookup(Where,3 + GroupingCount * 2),
+    FlatGrouping = lists:flatten([[Namespace, Name] ||
+                                     {Namespace, Name} <- Grouping]),
+    Values = [Bucket, Metric | FlatGrouping ++ TagPairs],
     {ok, Query ++ TagPredicate, Values}.
 
 lookup_tags_query({in, Collection, Metric}) when is_binary(Metric) ->
@@ -165,7 +170,9 @@ grouping_select_([Name | R]) ->
 grouping_where([], _) ->
     "";
 grouping_where([Name | R], Pos) ->
-    ["AND ", Name, ".name = $",  i2l(Pos), " " | grouping_where(R, Pos + 1)].
+    ["AND ", Name, ".namespace = $",  i2l(Pos), " "
+     "AND ", Name, ".name = $",  i2l(Pos + 1), " " |
+     grouping_where(R, Pos + 2)].
 
 grouping_join([]) ->
     " ";
