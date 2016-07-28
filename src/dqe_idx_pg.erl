@@ -32,9 +32,11 @@ lookup(Query, Groupings) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, Groupings),
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    io:format("~s <- ~p~n", [Q, Vs]),
     lager:debug("[dqe_idx:pg:lookup/2] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
-    R = [{B, dproto:metric_from_list(M)} || {B, M} <- Rows],
+    R = [{B, dproto:metric_from_list(M), G} || {B, M, G} <- Rows],
+    io:format("==> ~p~n", [R]),
     {ok, R}.
 
 lookup_tags(Query) ->

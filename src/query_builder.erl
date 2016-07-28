@@ -21,9 +21,9 @@ lookup_query({in, Collection, Metric}, Grouping) ->
     GroupingNames = grouping_names(GroupingCount),
     Query = ["SELECT DISTINCT bucket, key ",
              grouping_select(GroupingNames),
-             "FROM ", ?MET_TABLE, " ",
+             "FROM " ?MET_TABLE " ",
              grouping_join(GroupingNames),
-             "WHERE collection = $1 AND metric = $2 ",
+             "WHERE " ?MET_TABLE ".collection = $1 AND metric = $2 ",
              grouping_where(GroupingNames, 3)],
     Values = [Collection, Metric | Grouping],
     {ok, Query, Values};
@@ -35,7 +35,7 @@ lookup_query({in, Bucket, Metric, Where}, Grouping)
              grouping_select(GroupingNames),
              "FROM ", ?MET_TABLE, " ",
              grouping_join(GroupingNames),
-             "WHERE collection = $1 AND metric = $2 ",
+             "WHERE " ?MET_TABLE ".collection = $1 AND metric = $2 ",
              grouping_where(GroupingNames, 3),
              "AND "],
     {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 3 + GroupingCount),
@@ -52,7 +52,7 @@ lookup_tags_query({in, Collection, Metric})
         "FROM " ?DIM_TABLE " "
         "LEFT JOIN " ?MET_TABLE " ON "
         ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
-        "WHERE collection = $1 and metric = $2",
+        "WHERE " ?MET_TABLE ".collection = $1 and metric = $2",
     Values = [Collection, Metric],
     {ok, Query, Values};
 lookup_tags_query({in, Bucket, Metric, Where})
