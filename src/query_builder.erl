@@ -25,7 +25,9 @@ lookup_query({in, Collection, Metric}, Grouping) ->
              grouping_join(GroupingNames),
              "WHERE " ?MET_TABLE ".collection = $1 AND metric = $2 ",
              grouping_where(GroupingNames, 3)],
-    Values = [Collection, Metric | Grouping],
+    FlatGrouping = lists:flatten([[Namespace, Name] ||
+                                     {Namespace, Name} <- Grouping]),
+    Values = [Collection, Metric | FlatGrouping],
     {ok, Query, Values};
 lookup_query({in, Bucket, Metric, Where}, Grouping)
   when is_list(Metric) ->
