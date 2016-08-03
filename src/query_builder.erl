@@ -152,6 +152,12 @@ build_tag_lookup({'=', {tag, NS, K}, V}, NIn, Vals) ->
            " namespace = $", i2l(NIn),
            " AND name = $", i2l(NIn+1),
            " AND value = $", i2l(NIn+2), ")"],
+    {NIn+3, [NS, K, V | Vals], Str};
+build_tag_lookup({'!=', {tag, NS, K}, V}, NIn, Vals) ->
+    Str = ["id NOT IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE ",
+           " namespace = $", i2l(NIn),
+           " AND name = $", i2l(NIn+1),
+           " AND value = $", i2l(NIn+2), ")"],
     {NIn+3, [NS, K, V | Vals], Str}.
 
 grouping_names(0) ->
