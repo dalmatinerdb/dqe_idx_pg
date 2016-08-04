@@ -237,7 +237,6 @@ expand(Bucket, Globs) when
           Metric::binary() | list(),
           Bucket::binary(),
           Key::binary() | list()) ->
-                 ok |
                  {ok, MetricIdx::non_neg_integer()} |
                  {error, Error::term()}.
 
@@ -253,13 +252,11 @@ add(Collection, Metric, Bucket, Key)
        is_binary(Bucket),
        is_list(Key) ->
     Q = "INSERT INTO " ?MET_TABLE " (collection, metric, bucket, key) VALUES "
-        "($1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING id",
+        "($1, $2, $3, $4) ON CONFLICT (collection, metric, bucket, key) "
+        "DO UPDATE SET key = EXCLUDED.key RETURNING id",
     Vs = [Collection, Metric, Bucket, Key],
     T0 = erlang:system_time(),
     case pgapp:equery(Q, Vs) of
-        %% Returned by DO NOTHING
-        {ok, 0} ->
-            ok;
         {ok, 1, [_], [{ID}]} ->
             lager:debug("[dqe_idx:pg:add/4] Query too ~pms: ~s <- ~p",
                         [dqe_idx_pg:tdelta(T0), Q, Vs]),
@@ -286,8 +283,6 @@ add(Collection, Metric, Bucket, Key, NVs)
        is_binary(Bucket),
        is_list(Key) ->
     case add(Collection, Metric, Bucket, Key) of
-        ok ->
-            ok;
         {ok, MID} ->
             {Q, Vs} = add_tags(MID, Collection, NVs),
             T0 = erlang:system_time(),
