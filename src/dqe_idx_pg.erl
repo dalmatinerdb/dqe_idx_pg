@@ -439,7 +439,7 @@ add_tags(MID, Collection, Tags) ->
 update_tags(MID, Collection, Tags) ->
     Q = "INSERT INTO " ?DIM_TABLE " "
         "(metric_id, collection, namespace, name, value) VALUES ",
-    OnConflict = "ON CONSTRAINT tags_metric_id_namespace_name_key "
+    OnConflict = "ON CONSTRAINT dimensions_metric_id_namespace_name_key "
         "DO UPDATE SET value = excluded.value",
     build_tags(MID, Collection, 1, OnConflict, Tags, Q, []).
 
