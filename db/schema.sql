@@ -16,7 +16,7 @@ CREATE TABLE metrics (
    metric_9     text
 );
 
-CREATE UNIQUE INDEX metrics_idx ON metrics (tag_bucket, tag_metric_0, tag_metric_1, tag_metric_2, tag_metric_3, tag_metric_4, tag_metric_5, tag_metric_6, tag_metric_7, tag_metric_8, tag_metric_9);
+CREATE UNIQUE INDEX metrics_idx ON metrics (tag_bucket, tag_metric, metric_0, metric_1, metric_2, metric_3, metric_4, metric_5, metric_6, metric_7, metric_8, metric_9);
 
 DROP TABLE IF EXISTS tags;
 CREATE TABLE tags (
