@@ -21,7 +21,8 @@ lookup_query({in, Collection, Metric}, Groupings) ->
 lookup_query({in, Bucket, Metric, Where}, Groupings) ->
     build_lookup_query(Bucket, Metric, Where, Groupings).
 
-build_lookup_query(Collection, Metric, Grouping) ->
+build_lookup_query(Collection, Metric, Grouping)
+  when is_list(Metric); is_atom(Metric) ->
     GroupingCount = length(Grouping),
     GroupingNames = grouping_names(GroupingCount),
     {N, {MetricWhere, MetricName}} = metric_where(2, Metric),
@@ -38,7 +39,7 @@ build_lookup_query(Collection, Metric, Grouping) ->
     {ok, Query, Values}.
 
 build_lookup_query(Bucket, Metric, Where, Grouping)
-  when is_list(Metric) ->
+  when is_list(Metric); is_atom(Metric) ->
     GroupingCount = length(Grouping),
     GroupingNames = grouping_names(GroupingCount),
     {N, {MetricWhere, MetricName}} = metric_where(2, Metric),
@@ -53,7 +54,7 @@ build_lookup_query(Bucket, Metric, Where, Grouping)
     {_N, TagPairs, TagPredicate} =
         %% We need to multipy count by two since we got names
         %% and namespaces
-        build_tag_lookup(Where, 3 + GroupingCount * 2),
+        build_tag_lookup(Where, N + GroupingCount * 2),
     FlatGrouping = lists:flatten([[Namespace, Name] ||
                                      {Namespace, Name} <- Grouping]),
     Values = [Bucket | MetricName ++ FlatGrouping ++ TagPairs],
