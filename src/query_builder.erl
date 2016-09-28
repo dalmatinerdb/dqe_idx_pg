@@ -11,42 +11,52 @@
 lookup_query({in, Collection, Metric}, Groupings)
   when is_binary(Metric) ->
     MetricL = dproto:metric_to_list(Metric),
-    lookup_query({in, Collection, MetricL}, Groupings);
+    build_lookup_query(Collection, MetricL, Groupings);
 lookup_query({in, Collection, Metric, Where}, Groupings)
   when is_binary(Metric) ->
     MetricL = dproto:metric_to_list(Metric),
-    lookup_query({in, Collection, MetricL, Where}, Groupings);
-lookup_query({in, Collection, Metric}, Grouping) ->
+    build_lookup_query(Collection, MetricL, Where, Groupings);
+lookup_query({in, Collection, Metric}, Groupings) ->
+    build_lookup_query(Collection, Metric, Groupings);
+lookup_query({in, Bucket, Metric, Where}, Groupings) ->
+    build_lookup_query(Bucket, Metric, Where, Groupings).
+
+build_lookup_query(Collection, Metric, Grouping) ->
     GroupingCount = length(Grouping),
     GroupingNames = grouping_names(GroupingCount),
+    {N, {MetricWhere, MetricName}} = metric_where(2, Metric),
     Query = ["SELECT DISTINCT bucket, key ",
              grouping_select(GroupingNames),
              "FROM " ?MET_TABLE " ",
              grouping_join(GroupingNames),
-             "WHERE " ?MET_TABLE ".collection = $1 AND metric = $2 ",
-             grouping_where(GroupingNames, 3)],
+             "WHERE " ?MET_TABLE ".collection = $1 ",
+             MetricWhere,
+             grouping_where(GroupingNames, N)],
     FlatGrouping = lists:flatten([[Namespace, Name] ||
                                      {Namespace, Name} <- Grouping]),
-    Values = [Collection, Metric | FlatGrouping],
-    {ok, Query, Values};
-lookup_query({in, Bucket, Metric, Where}, Grouping)
+    Values = [Collection | MetricName ++ FlatGrouping],
+    {ok, Query, Values}.
+
+build_lookup_query(Bucket, Metric, Where, Grouping)
   when is_list(Metric) ->
     GroupingCount = length(Grouping),
     GroupingNames = grouping_names(GroupingCount),
+    {N, {MetricWhere, MetricName}} = metric_where(2, Metric),
     Query = ["SELECT DISTINCT bucket, key",
              grouping_select(GroupingNames),
              "FROM ", ?MET_TABLE, " ",
              grouping_join(GroupingNames),
-             "WHERE " ?MET_TABLE ".collection = $1 AND metric = $2 ",
-             grouping_where(GroupingNames, 3),
+             "WHERE " ?MET_TABLE ".collection = $1 ",
+             MetricWhere,
+             grouping_where(GroupingNames, N),
              "AND "],
     {_N, TagPairs, TagPredicate} =
         %% We need to multipy count by two since we got names
-        %% and namespcaes
-        build_tag_lookup(Where,3 + GroupingCount * 2),
+        %% and namespaces
+        build_tag_lookup(Where, 3 + GroupingCount * 2),
     FlatGrouping = lists:flatten([[Namespace, Name] ||
                                      {Namespace, Name} <- Grouping]),
-    Values = [Bucket, Metric | FlatGrouping ++ TagPairs],
+    Values = [Bucket | MetricName ++ FlatGrouping ++ TagPairs],
     {ok, Query ++ TagPredicate, Values}.
 
 lookup_tags_query({in, Collection, Metric}) when is_binary(Metric) ->
@@ -174,6 +184,12 @@ grouping_select_([]) ->
     "] ";
 grouping_select_([Name | R]) ->
     [", ", Name, ".value" | grouping_select_(R)].
+
+metric_where(N, undefined) ->
+    {N, {"", []}};
+metric_where(N, Metric) ->
+    MetricPredicate = [" AND metric = $", i2l(N), " "],
+    {N + 1, {MetricPredicate, [Metric]}}.
 
 grouping_where([], _) ->
     "";
