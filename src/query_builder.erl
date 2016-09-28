@@ -19,7 +19,7 @@ lookup_query({in, Collection, Metric, Where}, Groupings)
 lookup_query({in, Collection, Metric}, Groupings) ->
     build_lookup_query(Collection, Metric, Groupings);
 lookup_query({in, Bucket, Metric, Where}, Groupings) ->
-    build_lookup_query(Bucket, Metric, Where, Groupings);
+    build_lookup_query(Bucket, Metric, Where, Groupings).
 
 build_lookup_query(Collection, Metric, Grouping) ->
     GroupingCount = length(Grouping),
@@ -52,8 +52,8 @@ build_lookup_query(Bucket, Metric, Where, Grouping)
              "AND "],
     {_N, TagPairs, TagPredicate} =
         %% We need to multipy count by two since we got names
-        %% and namespcaes
-        build_tag_lookup(Where,3 + GroupingCount * 2),
+        %% and namespaces
+        build_tag_lookup(Where, 3 + GroupingCount * 2),
     FlatGrouping = lists:flatten([[Namespace, Name] ||
                                      {Namespace, Name} <- Grouping]),
     Values = [Bucket | MetricName ++ FlatGrouping ++ TagPairs],
