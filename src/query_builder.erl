@@ -1,6 +1,6 @@
 -module(query_builder).
 -export([lookup_query/2, lookup_tags_query/1, add_tags/2, update_tags/2,
-         glob_query/2, i2l/1]).
+         glob_query/2, metric_variants_query/2, i2l/1]).
 
 -include("dqe_idx_pg.hrl").
 
@@ -91,6 +91,15 @@ glob_query(Bucket, Globs) ->
              "WHERE bucket = $1 AND "],
     GlobWheres = [glob_where(Bucket, Query, Glob) || Glob <- Globs],
     {ok, GlobWheres}.
+
+metric_variants_query(Collection, Prefix) when is_list(Prefix) ->
+    L = length(Prefix),
+    {_N, MetricVals, MetricPredicate} = metric_variant_where(Prefix, 3),
+    Query = ["SELECT DISTINCT metric[$1] ",
+             "FROM ", ?MET_TABLE, " ",
+             "WHERE collection = $2 "],
+    Values = [L + 1, Collection | MetricVals],
+    {ok, Query ++ MetricPredicate, Values}.
 
 add_tags(MID, Tags) ->
     Fn = "add_tag",
@@ -191,6 +200,16 @@ metric_where(N, undefined) ->
 metric_where(N, Metric) ->
     MetricPredicate = [" AND metric = $", i2l(N), " "],
     {N + 1, {MetricPredicate, [Metric]}}.
+
+%% Example output:
+%% AND metric[1:2] = '{base, cpu}'
+metric_variant_where([], N) ->
+    {N, [], ""};
+metric_variant_where(Prefix, N) ->
+    L = length(Prefix),
+    Pred = ["AND metric[1:$", i2l(N), "] = $", i2l(N + 1), " "],
+    Values = [L, Prefix],
+    {N + 2, Values, Pred}.
 
 grouping_where([], _) ->
     "";
