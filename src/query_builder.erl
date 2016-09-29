@@ -79,7 +79,7 @@ lookup_tags_query({in, Bucket, Metric, Where})
         "FROM " ?DIM_TABLE " "
         "LEFT JOIN " ?MET_TABLE " ON "
         ?DIM_TABLE ".metric_id = id "
-        "WHERE collection = $1 and metric = $2"
+        "WHERE " ?MET_TABLE ".collection = $1 and metric = $2"
         "AND ",
     {_N, TagPairs, TagPredicate} = build_tag_lookup(Where),
     Values = [Bucket, Metric | TagPairs],

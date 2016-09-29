@@ -5,48 +5,115 @@
 
 -compile(export_all).
 
+-define(M, query_builder).
+
 %%%-------------------------------------------------------------------
 %%% Generators
 %%%-------------------------------------------------------------------
 
+str() ->
+    list(choose($a, $z)).
+
+non_empty_string() ->
+    ?SUCHTHAT(L, str(), length(L) >= 2).
+
+non_empty_binary() ->
+    ?LET(L, non_empty_string(), list_to_binary(L)).
+
+non_empty_list(T) ->
+    ?SUCHTHAT(L, list(T), L /= []).
+
 bucket() ->
-    ?LAZY(oneof([<<"bucket1">>,
-                <<"bucket2">>,
-                <<"bucket3">>])).
+    non_empty_binary().
+
+collection() ->
+    non_empty_binary().
 
 metric() ->
-    ?LAZY(oneof([[<<"base">>, <<"cpu">>],
-                 [<<"bytes">>, <<"sent">>]])).
+    non_empty_list(non_empty_binary()).
+
+lqry_metric() ->
+    oneof([metric(), undefined]).
 
 tag() ->
-    ?LAZY(oneof([{<<"direction">>, <<"in">>},
-                 {<<"direction">>, <<"out">>},
-                 {<<"host">>, <<"web1">>},
-                 {<<"host">>, <<"web2">>}])).
+    frequency(
+      [{10, {tag, non_empty_binary(), non_empty_binary()}},
+       {1,  {tag, <<>>, non_empty_binary()}}]).
+
+lookup() ->
+    oneof([{in, collection(), lqry_metric()},
+           {in, collection(), lqry_metric(), where()}]).
+
+lookup_tags() ->
+    oneof([{in, collection(), metric()},
+           {in, collection(), metric(), where()}]).
 
 where() ->
-    ?SIZED(Size, where(Size)).
+    ?SIZED(S, where_clause(S)).
 
-where(0) -> tag();
-where(Size) ->
-    ?LAZY(oneof([where(0),
-                 {'and', where(Size - 1), where(Size - 1)},
-                 {'or', where(Size - 1), where(Size - 1)}
-                ])).
+where_clause(S) when S =< 1 ->
+    oneof([{'=', tag(), non_empty_binary()},
+           {'!=', tag(), non_empty_binary()}]);
+where_clause(S) ->
+    ?LAZY(?LET(N, choose(0, S - 1), where_clause_choice(N, S))).
 
-query() ->
-    oneof([{bucket(), metric()},
-           {bucket(), metric(), where()}]).
+where_clause_choice(N, S) ->
+    oneof([{'and', where_clause(N), where_clause(S - N)}]).
+
+prefix() ->
+    list(non_empty_binary()).
 
 %%%-------------------------------------------------------------------
 %%% Properties
 %%%-------------------------------------------------------------------
-prop_tags() ->
-    ?FORALL({Query}, {query()},
-            begin
-                {ok, C} = dqe_idx_pg:connect(),
-                {ok, QueryStr, _Values} = query_builder:lookup_query(Query),
-                {Res, _} = epgsql:parse(C, QueryStr),
-                dqe_idx_pg:close(C),
-                Res == ok
-            end).
+
+prop_lookup() ->
+    ?FORALL({LQuery}, {lookup()},
+        begin
+            Fun = fun(C) ->
+                {ok, Q, _V} = ?M:lookup_query(LQuery, []),
+                {Res, _} = epgsql:parse(C, Q),
+                Res
+            end,
+            ok =:= with_connection(Fun)
+        end
+    ).
+
+prop_lookup_tags() ->
+    ?FORALL({LTQuery}, {lookup_tags()},
+        begin
+            Fun = fun(C) ->
+                {ok, Q, _V} = ?M:lookup_tags_query(LTQuery),
+                {Res, _} = epgsql:parse(C, Q),
+                Res
+            end,
+            ok =:= with_connection(Fun)
+        end
+    ).
+
+prop_metric_variants() ->
+    ?FORALL({Collection, Prefix}, {collection(), prefix()},
+        begin
+            Fun = fun(C) ->
+                {ok, Q, _V} = ?M:metric_variants_query(Collection, Prefix),
+                {Res, _} = epgsql:parse(C, Q),
+                Res
+            end,
+            ok =:= with_connection(Fun)
+        end
+    ).
+
+-define(host, "localhost").
+-define(port, 5432).
+
+with_connection(F) ->
+    with_connection(F, "ddb", []).
+
+with_connection(F, Username, Args) ->
+    Args2 = [{port, ?port}, {database, "metric_metadata"} | Args],
+    {ok, C} = epgsql:connect(?host, Username, Args2),
+    try
+        F(C)
+    after
+        epgsql:close(C)
+    end.
