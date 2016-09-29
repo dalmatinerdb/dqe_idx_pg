@@ -8,7 +8,7 @@
          init/0,
          lookup/1, lookup/2, lookup_tags/1,
          collections/0, metrics/1, namespaces/1, namespaces/2,
-         tags/2, tags/3, values/3, values/4, expand/2,
+         tags/2, tags/3, values/3, values/4, expand/2, metric_variants/2,
          add/4, add/5, update/5,
          delete/4, delete/5,
          get_id/4, tdelta/1
@@ -50,6 +50,14 @@ lookup_tags(Query) ->
     lager:debug("[dqe_idx:pg:lookup/1] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     {ok, Rows}.
+
+metric_variants(Collection, Prefix) when is_list(Prefix) ->
+    {ok, Q, Vs} = query_builder:metric_variants_query(Collection, Prefix),
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:metric_variants/2] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
+    {ok, lists:sort(Rows)}.
 
 collections() ->
     Q = "WITH RECURSIVE t AS ("
