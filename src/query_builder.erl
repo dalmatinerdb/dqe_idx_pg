@@ -22,7 +22,7 @@ lookup_query({in, Bucket, Metric, Where}, Groupings) ->
     build_lookup_query(Bucket, Metric, Where, Groupings).
 
 build_lookup_query(Collection, Metric, Grouping)
-  when is_list(Metric); is_atom(Metric) ->
+  when is_list(Metric); Metric =:= undefined ->
     GroupingCount = length(Grouping),
     GroupingNames = grouping_names(GroupingCount),
     {N, {MetricWhere, MetricName}} = metric_where(2, Metric),
@@ -39,7 +39,7 @@ build_lookup_query(Collection, Metric, Grouping)
     {ok, Query, Values}.
 
 build_lookup_query(Bucket, Metric, Where, Grouping)
-  when is_list(Metric); is_atom(Metric) ->
+  when is_list(Metric); Metric =:= undefined ->
     GroupingCount = length(Grouping),
     GroupingNames = grouping_names(GroupingCount),
     {N, {MetricWhere, MetricName}} = metric_where(2, Metric),
