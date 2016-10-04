@@ -45,7 +45,7 @@ lookup_tags(Query) ->
 metric_variants(Collection, Prefix) when is_list(Prefix) ->
     {ok, Q, Vs} = query_builder:metric_variants_query(Collection, Prefix),
     Rows = execute({select, "metric_variants/2", Q, Vs}),
-    {ok, lists:sort(Rows)}.
+    {ok, [R || {R} <- lists:sort(Rows)]}.
 
 collections() ->
     {ok, Q, Vs} = query_builder:collections_query(),

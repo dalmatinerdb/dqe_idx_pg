@@ -120,12 +120,12 @@ glob_query(Bucket, Globs) ->
 metric_variants_query(Collection, Prefix)
   when is_binary(Collection),
        is_list(Prefix) ->
-    L = length(Prefix),
-    {_N, MetricVals, MetricPredicate} = metric_variant_where(Prefix, 3),
-    Query = ["SELECT DISTINCT metric[$1] ",
+    {_N, MetricVals, MetricPredicate} = metric_variant_where(Prefix, 4),
+    Query = ["SELECT DISTINCT metric[$1]",
              "FROM ", ?MET_TABLE, " ",
-             "WHERE collection = $2 "],
-    Values = [L + 1, Collection | MetricVals],
+             "WHERE metric[$2] IS NOT NULL AND collection = $3 "],
+    PathIndex = 1 + length(Prefix),
+    Values = [PathIndex, PathIndex, Collection | MetricVals],
     {ok, Query ++ MetricPredicate, Values}.
 
 tags_query(Collection, Namespace)
