@@ -31,8 +31,7 @@ lookup(Query) ->
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:lookup/2] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
-    R = [{B, dproto:metric_from_list(M)} || {B, M} <- Rows],
-    {ok, R}.
+    {ok, Rows}.
 
 lookup(Query, Groupings) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, Groupings),
@@ -40,8 +39,7 @@ lookup(Query, Groupings) ->
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:lookup/2] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
-    R = [{B, dproto:metric_from_list(M), G} || {B, M, G} <- Rows],
-    {ok, R}.
+    {ok, Rows}.
 
 lookup_tags(Query) ->
     {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
@@ -93,7 +91,7 @@ metrics(Collection) when is_binary(Collection) ->
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:metrics] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
-    R = [dproto:metric_from_list(M) || {M} <- Rows],
+    R = [M || {M} <- Rows],
     {ok, R}.
 
 namespaces(Collection) when is_binary(Collection) ->
@@ -115,9 +113,6 @@ namespaces(Collection) when is_binary(Collection) ->
     lager:debug("[dqe_idx:pg:namespaces] Query took ~pms: ~s <- ~p",
                [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
-
-namespaces(Collection, Metric) when is_binary(Metric) ->
-    namespaces(Collection, dproto:metric_to_list(Metric));
 
 namespaces(Collection, Metric)
   when is_binary(Collection),
@@ -154,8 +149,6 @@ tags(Collection, Namespace)
     lager:debug("[dqe_idx:pg:tags/3] Query took ~pms: ~s <- ~p",
                 [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
-tags(Collection, Metric, Namespace) when is_binary(Metric)->
-    tags(Collection, dproto:metric_to_list(Metric), Namespace);
 
 tags(Collection, Metric, Namespace)
   when is_binary(Collection),
@@ -198,9 +191,6 @@ values(Collection, Namespace, Tag)
                 [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
-values(Collection, Metric, Namespace, Tag) when is_binary(Metric)->
-    values(Collection, dproto:metric_to_list(Metric), Namespace, Tag);
-
 values(Collection, Metric, Namespace, Tag)
   when is_binary(Collection),
        is_list(Metric),
@@ -238,22 +228,8 @@ expand(Bucket, Globs) when
     %% equal to that of `Globs'
     [H | T] = RowSets,
     UniqueRows = lists:foldl(fun sets:union/2, H, T),
-    Metrics = [dproto:metric_from_list(M) || {M} <- sets:to_list(UniqueRows)],
+    Metrics = [M || {M} <- sets:to_list(UniqueRows)],
     {ok, {Bucket, Metrics}}.
-
--spec add(Collection::binary(),
-          Metric::binary() | list(),
-          Bucket::binary(),
-          Key::binary() | list()) ->
-                 ok |
-                 {ok, MetricIdx::non_neg_integer()} |
-                 {error, Error::term()}.
-
-add(Collection, Metric, Bucket, Key) when is_binary(Metric) ->
-    add(Collection, dproto:metric_to_list(Metric), Bucket, Key);
-
-add(Collection, Metric, Bucket, Key) when is_binary(Key) ->
-    add(Collection, Metric, Bucket, dproto:metric_to_list(Key));
 
 add(Collection, Metric, Bucket, Key)
   when is_binary(Collection),
@@ -282,12 +258,6 @@ add(Collection, Metric, Bucket, Key)
 add(Collection, Metric, Bucket, Key, []) ->
     add(Collection, Metric, Bucket, Key);
 
-add(Collection, Metric, Bucket, Key, NVs) when is_binary(Metric) ->
-    add(Collection, dproto:metric_to_list(Metric), Bucket, Key, NVs);
-
-add(Collection, Metric, Bucket, Key, NVs) when is_binary(Key) ->
-    add(Collection, Metric, Bucket, dproto:metric_to_list(Key), NVs);
-
 add(Collection, Metric, Bucket, Key, NVs)
   when is_binary(Collection),
        is_list(Metric),
@@ -313,12 +283,6 @@ add(Collection, Metric, Bucket, Key, NVs)
         EAdd ->
             EAdd
     end.
-
-update(Collection, Metric, Bucket, Key, NVs) when is_binary(Metric) ->
-    update(Collection, dproto:metric_to_list(Metric), Bucket, Key, NVs);
-
-update(Collection, Metric, Bucket, Key, NVs) when is_binary(Key) ->
-    update(Collection, Metric, Bucket, dproto:metric_to_list(Key), NVs);
 
 update(Collection, Metric, Bucket, Key, NVs)
   when is_binary(Collection),
@@ -351,10 +315,6 @@ update(Collection, Metric, Bucket, Key, NVs)
             EAdd
     end.
 
-delete(Collection, Metric, Bucket, Key) when is_binary(Metric) ->
-    delete(Collection, dproto:metric_to_list(Metric), Bucket, Key);
-delete(Collection, Metric, Bucket, Key) when is_binary(Key) ->
-    delete(Collection, Metric, Bucket, dproto:metric_to_list(Key));
 delete(Collection, Metric, Bucket, Key)
   when is_binary(Collection),
        is_list(Metric),
@@ -375,10 +335,6 @@ delete(Collection, Metric, Bucket, Key)
             E
     end.
 
-delete(Collection, Metric, Bucket, Key, NVs) when is_binary(Metric) ->
-    delete(Collection, dproto:metric_to_list(Metric), Bucket, Key, NVs);
-delete(Collection, Metric, Bucket, Key, NVs) when is_binary(Key) ->
-    delete(Collection, Metric, Bucket, dproto:metric_to_list(Key), NVs);
 delete(Collection, Metric, Bucket, Key, Tags) ->
     case get_id(Collection, Metric, Bucket, Key) of
         not_found ->

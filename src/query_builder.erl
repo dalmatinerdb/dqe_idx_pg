@@ -8,14 +8,6 @@
 %% API
 %%====================================================================
 
-lookup_query({in, Collection, Metric}, Groupings)
-  when is_binary(Metric) ->
-    MetricL = dproto:metric_to_list(Metric),
-    build_lookup_query(Collection, MetricL, Groupings);
-lookup_query({in, Collection, Metric, Where}, Groupings)
-  when is_binary(Metric) ->
-    MetricL = dproto:metric_to_list(Metric),
-    build_lookup_query(Collection, MetricL, Where, Groupings);
 lookup_query({in, Collection, Metric}, Groupings) ->
     build_lookup_query(Collection, Metric, Groupings);
 lookup_query({in, Bucket, Metric, Where}, Groupings) ->
@@ -60,10 +52,6 @@ build_lookup_query(Bucket, Metric, Where, Grouping)
     Values = [Bucket | MetricName ++ FlatGrouping ++ TagPairs],
     {ok, Query ++ TagPredicate, Values}.
 
-lookup_tags_query({in, Collection, Metric}) when is_binary(Metric) ->
-    lookup_tags_query({in, Collection, dproto:metric_to_list(Metric)});
-lookup_tags_query({in, Collection, Metric, Where}) when is_binary(Metric) ->
-    lookup_tags_query({in, Collection, dproto:metric_to_list(Metric), Where});
 lookup_tags_query({in, Collection, Metric})
   when is_list(Metric) ->
     Query = "SELECT DISTINCT namespace, name, value "
