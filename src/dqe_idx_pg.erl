@@ -27,66 +27,195 @@ init() ->
 
 lookup(Query) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, []),
-    Rows = execute({select, "lookup/1", Q, Vs}),
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:lookup/2] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
     R = [{B, dproto:metric_from_list(M)} || {B, M} <- Rows],
     {ok, R}.
 
 lookup(Query, Groupings) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, Groupings),
-    Rows = execute({select, "lookup/2", Q, Vs}),
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:lookup/2] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
     R = [{B, dproto:metric_from_list(M), G} || {B, M, G} <- Rows],
     {ok, R}.
 
 lookup_tags(Query) ->
     {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
-    Rows = execute({select, "lookup_tags/1", Q, Vs}),
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:lookup/1] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
     {ok, Rows}.
 
 metric_variants(Collection, Prefix) when is_list(Prefix) ->
     {ok, Q, Vs} = query_builder:metric_variants_query(Collection, Prefix),
-    Rows = execute({select, "metric_variants/2", Q, Vs}),
-    {ok, [R || {R} <- lists:sort(Rows)]}.
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:metric_variants/2] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
+    {ok, lists:sort(Rows)}.
 
 collections() ->
-    {ok, Q, Vs} = query_builder:collections_query(),
-    Rows = execute({select, "collections/0", Q, Vs}),
+    Q = "WITH RECURSIVE t AS ("
+        "   SELECT MIN(collection) AS collection FROM " ?MET_TABLE
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(collection) FROM " ?MET_TABLE
+        "     WHERE collection > t.collection)"
+        "   FROM t WHERE t.collection IS NOT NULL"
+        "   )"
+        "SELECT collection FROM t WHERE collection IS NOT NULL",
+    Vs = [],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:collections] Query took ~pms: ~s",
+                [tdelta(T0), Q]),
     {ok, strip_tpl(Rows)}.
 
-metrics(Collection) ->
-    {ok, Q, Vs} = query_builder:metrics_query(Collection),
-    Rows = execute({select, "metrics/1", Q, Vs}),
+metrics(Collection) when is_binary(Collection) ->
+    Q = "WITH RECURSIVE t AS ("
+        "   SELECT MIN(metric) AS metric FROM "
+        ?MET_TABLE
+        "     WHERE collection = $1"
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(metric) FROM "
+        ?MET_TABLE
+        "     WHERE metric > t.metric"
+        "     AND collection = $1)"
+        "   FROM t WHERE t.metric IS NOT NULL"
+        "   )"
+        "SELECT metric FROM t WHERE metric IS NOT NULL",
+    Vs = [Collection],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:metrics] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
     R = [dproto:metric_from_list(M) || {M} <- Rows],
     {ok, R}.
 
-namespaces(Collection) ->
-    {ok, Q, Vs} = query_builder:namespaces_query(Collection),
-    Rows = execute({select, "namespaces/1", Q, Vs}),
+namespaces(Collection) when is_binary(Collection) ->
+    Q = "WITH RECURSIVE t AS ("
+        "   SELECT MIN(namespace) AS namespace FROM "
+        ?DIM_TABLE
+        "     WHERE collection = $1"
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(namespace) FROM "
+        ?DIM_TABLE
+        "     WHERE namespace > t.namespace"
+        "     AND collection = $1)"
+        "   FROM t WHERE t.namespace IS NOT NULL"
+        "   )"
+        "SELECT namespace FROM t WHERE namespace IS NOT NULL",
+    Vs = [Collection],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:namespaces] Query took ~pms: ~s <- ~p",
+               [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
-namespaces(Collection, Metric) ->
-    {ok, Q, Vs} = query_builder:namespaces_query(Collection, Metric),
-    Rows = execute({select, "namespaces/2", Q, Vs}),
+namespaces(Collection, Metric) when is_binary(Metric) ->
+    namespaces(Collection, dproto:metric_to_list(Metric));
+
+namespaces(Collection, Metric)
+  when is_binary(Collection),
+       is_list(Metric) ->
+    Q = "SELECT DISTINCT(namespace) FROM " ?DIM_TABLE " "
+        "LEFT JOIN " ?MET_TABLE " "
+        "ON " ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
+        "WHERE " ?MET_TABLE ".collection = $1 AND " ?MET_TABLE ".metric = $2",
+    Vs = [Collection, Metric],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:namespaces] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
-tags(Collection, Namespace) ->
-    {ok, Q, Vs} = query_builder:tags_query(Collection, Namespace),
-    Rows = execute({select, "tags/2", Q, Vs}),
+tags(Collection, Namespace)
+  when is_binary(Collection),
+       is_binary(Namespace) ->
+    Q = "WITH RECURSIVE t AS ("
+        "   SELECT MIN(name) AS name FROM " ?DIM_TABLE
+        "     WHERE collection = $1"
+        "     AND namespace = $2"
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(name) FROM " ?DIM_TABLE
+        "     WHERE name > t.name"
+        "     AND collection = $1"
+        "     AND namespace = $2)"
+        "   FROM t WHERE t.name IS NOT NULL"
+        "   )"
+        "SELECT name FROM t WHERE name IS NOT NULL",
+    Vs = [Collection, Namespace],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:tags/3] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
+    {ok, strip_tpl(Rows)}.
+tags(Collection, Metric, Namespace) when is_binary(Metric)->
+    tags(Collection, dproto:metric_to_list(Metric), Namespace);
+
+tags(Collection, Metric, Namespace)
+  when is_binary(Collection),
+       is_list(Metric),
+       is_binary(Namespace) ->
+    Q = "SELECT DISTINCT(name) FROM " ?DIM_TABLE " "
+        "LEFT JOIN " ?MET_TABLE " "
+        "ON " ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
+        "WHERE " ?MET_TABLE ".collection = $1 AND " ?MET_TABLE ".metric = $2 "
+        "AND " ?DIM_TABLE ".namespace = $3",
+    Vs = [Collection, Metric, Namespace],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:tags/3] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
-tags(Collection, Metric, Namespace) ->
-    {ok, Q, Vs} = query_builder:tags_query(Collection, Metric, Namespace),
-    Rows = execute({select, "tags/3", Q, Vs}),
+values(Collection, Namespace, Tag)
+  when is_binary(Collection),
+       is_binary(Namespace),
+       is_binary(Tag) ->
+    Q = "WITH RECURSIVE t AS ("
+        "   SELECT MIN(value) AS value FROM " ?DIM_TABLE
+        "     WHERE collection = $1"
+        "     AND namespace = $2"
+        "     AND name = $3"
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(value) FROM " ?DIM_TABLE
+        "     WHERE value > t.value"
+        "     AND collection = $1"
+        "     AND namespace = $2"
+        "     AND name = $3)"
+        "   FROM t WHERE t.value IS NOT NULL"
+        "   )"
+        "SELECT value FROM t WHERE value IS NOT NULL",
+    Vs = [Collection, Namespace, Tag],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:values/4] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
-values(Collection, Namespace, Tag) ->
-    {ok, Q, Vs} = query_builder:values_query(Collection, Namespace, Tag),
-    Rows = execute({select, "values/3", Q, Vs}),
-    {ok, strip_tpl(Rows)}.
+values(Collection, Metric, Namespace, Tag) when is_binary(Metric)->
+    values(Collection, dproto:metric_to_list(Metric), Namespace, Tag);
 
-values(Collection, Metric, Namespace, Tag) ->
-    {ok, Q, Vs} = query_builder:values_query(Collection, Metric,
-                                             Namespace, Tag),
-    Rows = execute({select, "values/4", Q, Vs}),
+values(Collection, Metric, Namespace, Tag)
+  when is_binary(Collection),
+       is_list(Metric),
+       is_binary(Namespace),
+       is_binary(Tag) ->
+    Q = "SELECT DISTINCT(value) FROM " ?DIM_TABLE " "
+        "LEFT JOIN " ?MET_TABLE " "
+        "ON " ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
+        "WHERE " ?MET_TABLE ".collection = $1 AND " ?MET_TABLE ".metric = $2 "
+        "AND " ?DIM_TABLE ".namespace = $3 AND name = $4",
+    Vs = [Collection, Metric, Namespace, Tag],
+    T0 = erlang:system_time(),
+    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+    lager:debug("[dqe_idx:pg:values/4] Query took ~pms: ~s <- ~p",
+                [tdelta(T0), Q, Vs]),
     {ok, strip_tpl(Rows)}.
 
 expand(Bucket, []) when is_binary(Bucket) ->
@@ -97,7 +226,11 @@ expand(Bucket, Globs) when
       is_list(Globs) ->
     {ok, QueryMap} = query_builder:glob_query(Bucket, Globs),
     RowSets = [begin
-                   Rows = execute({select, "expand/2", Q, Vs}),
+                   T0 = erlang:system_time(),
+                   {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
+                   lager:debug("[dqe_idx:pg:expand/2] "
+                               "Query took ~p ms: ~s <- ~p",
+                               [tdelta(T0), Q, Vs]),
                    sets:from_list(Rows)
                end || {Q, Vs} <- QueryMap],
 
@@ -333,10 +466,3 @@ tag_values(P)  ->
      "$", query_builder:i2l(P + 2), ", "
      "$", query_builder:i2l(P + 3), ", "
      "$", query_builder:i2l(P + 4), ")"].
-
-execute({select, Name, Q, Vs}) ->
-    T0 = erlang:system_time(),
-    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
-    lager:debug("[dqe_idx:pg:~p] Query took ~pms: ~s <- ~p",
-                [Name, tdelta(T0), Q, Vs]),
-    Rows.
