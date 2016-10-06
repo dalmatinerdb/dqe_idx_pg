@@ -213,7 +213,7 @@ prop_metric_values() ->
     ).
 
 -define(host, "localhost").
--define(port, 5432).
+-define(port, 10433).
 
 with_connection(F) ->
     with_connection(F, "ddb", []).

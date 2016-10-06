@@ -1,2 +1,11 @@
+REBAR = $(shell pwd)/rebar3
+
 all:
-	rebar3 compile
+	@$(REBAR) compile
+
+eqc_test:
+	# Uses the test environment set up with setup_test_db.sh
+	rm -rf datadir
+	./priv/setup_test_db.sh
+	@$(REBAR) as eqc eqc
+	./priv/stop_test_db.sh
