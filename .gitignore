@@ -14,6 +14,7 @@ erl_crash.dump
 .rebar
 logs
 _build
+datadir
 .eqc-info
 current_counterexample.eqc
 rebar3.crashdump
