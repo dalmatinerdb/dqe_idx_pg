@@ -25,12 +25,12 @@ A working 9.1 or above Postgres installation is required in order to run the
 tests. The scripts included in the `priv` directory setup an isolated instance
 of Postgres in the `datadir` directory.
 
-./priv/setup_test_db.sh # This sets up an installation of Postgres in datadir/
+    ./priv/setup_test_db.sh # This sets up an installation of Postgres in datadir/
 
-./rebar3 as eqc eqc # Runs the tests
+    rebar3 as eqc eqc # Runs the tests
 
-./priv/stop_test_db.sh # This stops the instance of Postgres in datadir/
+    ./priv/stop_test_db.sh # This stops the instance of Postgres in datadir/
 
 Alternatively, use make to run all:
 
-make eqc_test # Runs setup, EQC and teardown scripts
+    make eqc_test # Runs setup, EQC and teardown scripts
