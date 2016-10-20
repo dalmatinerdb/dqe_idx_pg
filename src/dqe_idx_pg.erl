@@ -176,7 +176,7 @@ update(Collection, Metric, Bucket, Key, NVs)
             {Q, Vs} = update_tags(MID, Collection, NVs),
             T0 = erlang:system_time(),
             case pgapp:equery(Q, Vs) of
-                {ok, _, _} ->
+                {ok, _Count} ->
                     lager:debug("[dqe_idx:pg:update/5] Query too ~pms:"
                                 " ~s <- ~p",
                                 [dqe_idx_pg:tdelta(T0), Q, Vs]),
@@ -232,7 +232,7 @@ delete(MetricID, Namespace, TagName) ->
         "namespace = $2 AND name = $3",
     Vs = [MetricID, Namespace, TagName],
     case pgapp:equery(Q, Vs) of
-        {ok, _, _} ->
+        {ok, _Count} ->
             ok;
         E ->
             E
