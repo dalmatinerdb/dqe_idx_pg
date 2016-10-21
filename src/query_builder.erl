@@ -5,7 +5,7 @@
          lookup_query/2, lookup_tags_query/1,
          tags_query/2, tags_query/3, add_tags/2, update_tags/2,
          values_query/3, values_query/4,
-         glob_query/2, i2l/1]).
+         glob_query/2, get_id_query/4, i2l/1]).
 
 -include("dqe_idx_pg.hrl").
 
@@ -188,6 +188,18 @@ values_query(Collection, Metric, Namespace, Tag)
     Vs = [Collection, Metric, Namespace, Tag],
     {ok, Q, Vs}.
 
+get_id_query(Collection, Metric, Bucket, Key)
+  when is_binary(Collection),
+       is_list(Metric),
+       is_binary(Bucket),
+       is_list(Key) ->
+    Q = "SELECT id FROM " ?MET_TABLE " WHERE "
+        "collection = $1 AND "
+        "metric = $2 AND "
+        "bucket = $3 AND "
+        "key = $4",
+    Vs = [Collection, Metric, Bucket, Key],
+    {ok, Q, Vs}.
 
 %%====================================================================
 %% Internal functions

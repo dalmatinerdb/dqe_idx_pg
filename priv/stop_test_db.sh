@@ -6,3 +6,7 @@ if [ -z $(which pg_ctl) ] ; then
 fi
 
 pg_ctl stop -D datadir/
+
+if [ -d datadir ]; then
+    rm -r datadir
+fi
