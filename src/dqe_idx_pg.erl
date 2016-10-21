@@ -107,64 +107,59 @@ expand(Bucket, Globs) when
     Metrics = [M || {M} <- sets:to_list(UniqueRows)],
     {ok, {Bucket, Metrics}}.
 
-add(Collection, Metric, Bucket, Key)
-  when is_binary(Collection),
-       is_list(Metric),
-       is_binary(Bucket),
-       is_list(Key) ->
-    Q = "INSERT INTO " ?MET_TABLE " (collection, metric, bucket, key) VALUES "
-        "($1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING id",
-    Vs = [Collection, Metric, Bucket, Key],
-    T0 = erlang:system_time(),
-    case pgapp:equery(Q, Vs) of
-        %% Returned by DO NOTHING
-        {ok, 0} ->
-            ok;
-        {ok, 1, [_], [{ID}]} ->
-            lager:debug("[dqe_idx:pg:add/4] Query too ~pms: ~s <- ~p",
-                        [dqe_idx_pg:tdelta(T0), Q, Vs]),
-
+-spec get_id(collection(),
+             metric(),
+             bucket(),
+             key()) -> {ok, row_id()} | not_found().
+get_id(Collection, Metric, Bucket, Key) ->
+    {ok, Q, Vs} = query_builder:get_id_query(Collection, Metric, Bucket, Key),
+    case execute({select, "get_id/4", Q, Vs}) of
+        [{ID}] ->
             {ok, ID};
-        E ->
-            lager:info("[dqe_idx:pg:add/4] Query failed after ~pms: ~s <- ~p:"
-                       " ~p", [dqe_idx_pg:tdelta(T0), Q, Vs, E]),
-            E
+        _ ->
+            {'error', not_found}
     end.
 
-add(Collection, Metric, Bucket, Key, []) ->
-    add(Collection, Metric, Bucket, Key);
-
-add(Collection, Metric, Bucket, Key, NVs)
-  when is_binary(Collection),
-       is_list(Metric),
-       is_binary(Bucket),
-       is_list(Key) ->
-    case add(Collection, Metric, Bucket, Key) of
-        ok ->
+-spec add(collection(),
+          metric(),
+          bucket(),
+          key()) -> ok | {ok, row_id()} | sql_error().
+add(Collection, Metric, Bucket, Key) ->
+    {ok, Q, Vs} = command_builder:add_metric(Collection, Metric, Bucket, Key),
+    case execute({command, "add/4", Q, Vs}) of
+        {ok, 0, []} ->
             ok;
-        {ok, MID} ->
-            {Q, Vs} = add_tags(MID, Collection, NVs),
-            T0 = erlang:system_time(),
-            case pgapp:equery(Q, Vs) of
-                {ok, _} ->
-                    lager:debug("[dqe_idx:pg:add/5] Query too ~pms: ~s <- ~p",
-                                [dqe_idx_pg:tdelta(T0), Q, Vs]),
-                    {ok, MID};
-                E ->
-                    lager:info("[dqe_idx:pg:add/5] Query failed after ~pms: "
-                               "~s <- ~p: E",
-                               [dqe_idx_pg:tdelta(T0), Q, Vs, E]),
-                    E
-            end;
+        {ok, _Count, [{MID}]} ->
+            {ok, MID};
         EAdd ->
             EAdd
     end.
 
-update(Collection, Metric, Bucket, Key, NVs)
-  when is_binary(Collection),
-       is_list(Metric),
-       is_binary(Bucket),
-       is_list(Key) ->
+-spec add(collection(),
+          metric(),
+          bucket(),
+          key(),
+          [tag()]) -> ok | {ok, row_id()} | sql_error().
+add(Collection, Metric, Bucket, Key, []) ->
+    add(Collection, Metric, Bucket, Key);
+add(Collection, Metric, Bucket, Key, NVs) ->
+    case add(Collection, Metric, Bucket, Key) of
+        ok ->
+            ok;
+        {ok, MID} ->
+            {ok, Q, Vs} = command_builder:add_tags(MID, Collection, NVs),
+            {ok, _Count, _Rows} = execute({command, "add_tags/3", Q, Vs}),
+            {ok, MID};
+        EAdd ->
+            EAdd
+    end.
+
+-spec update(collection(),
+             metric(),
+             bucket(),
+             key(),
+             [tag()]) -> {ok, row_id()} | not_found() | sql_error().
+update(Collection, Metric, Bucket, Key, NVs) ->
     AddRes = case add(Collection, Metric, Bucket, Key) of
                  ok ->
                      get_id(Collection, Metric, Bucket, Key);
@@ -173,69 +168,44 @@ update(Collection, Metric, Bucket, Key, NVs)
              end,
     case AddRes of
         {ok, MID} ->
-            {Q, Vs} = update_tags(MID, Collection, NVs),
-            T0 = erlang:system_time(),
-            case pgapp:equery(Q, Vs) of
-                {ok, _Count} ->
-                    lager:debug("[dqe_idx:pg:update/5] Query too ~pms:"
-                                " ~s <- ~p",
-                                [dqe_idx_pg:tdelta(T0), Q, Vs]),
-                    {ok, MID};
-                E ->
-                    lager:info("[dqe_idx:pg:update/5] Query failed after ~pms:"
-                               " ~s <- ~p: ~p",
-                               [dqe_idx_pg:tdelta(T0), Q, Vs, E]),
-                    E
-            end;
+            {ok, Q, Vs} = command_builder:update_tags(MID, Collection, NVs),
+            {ok, _Count, _Rows} = execute({command, "update_tags/3", Q, Vs}),
+            {ok, MID};
         EAdd ->
             EAdd
     end.
 
-delete(Collection, Metric, Bucket, Key)
-  when is_binary(Collection),
-       is_list(Metric),
-       is_binary(Bucket),
-       is_list(Key) ->
-    Q = "DELETE FROM " ?MET_TABLE " WHERE collection = $1 AND " ++
-        "metric = $2 AND bucket = $3 AND key = $4",
-    Vs = [Collection, Metric, Bucket, Key],
-    T0 = erlang:system_time(),
-    case pgapp:equery(Q, Vs) of
-        {ok, _} ->
-            lager:debug("[dqe_idx:pg:delete/4] Query too ~pms: ~s <- ~p",
-                        [tdelta(T0), Q, Vs]),
+-spec delete(collection(),
+             metric(),
+             bucket(),
+             key()) -> ok | sql_error().
+delete(Collection, Metric, Bucket, Key) ->
+    {ok, Q, Vs} = command_builder:delete_metric(Collection, Metric,
+                                                Bucket, Key),
+    case execute({command, "delete/4", Q, Vs}) of
+        {ok, _Count, _Rows} ->
             ok;
         E ->
-            lager:info("[dqe_idx:pg:delete/4] Query failed after ~pms: "
-                       "~s <- ~p: ~p", [tdelta(T0), Q, Vs, E]),
             E
     end.
 
+-spec delete(collection(),
+             metric(),
+             bucket(),
+             key(),
+             [{tag_ns(), tag_name()}]) -> ok | sql_error().
 delete(Collection, Metric, Bucket, Key, Tags) ->
     case get_id(Collection, Metric, Bucket, Key) of
-        not_found ->
+        {error, not_found} ->
             ok;
-        {ok, ID} ->
-            Rs = [delete(ID, Namespace, Name) || {Namespace, Name} <- Tags],
+        {ok, MetricID} ->
+            Rs = [delete_tag(MetricID, NS, Name) || {NS, Name} <- Tags],
             case [R || R <- Rs, R /= ok] of
                 [] ->
                     ok;
                 [E | _] ->
                     E
-            end;
-        E ->
-            E
-    end.
-
-delete(MetricID, Namespace, TagName) ->
-    Q = "DELETE FROM " ?DIM_TABLE " WHERE metric_id = $1 AND "
-        "namespace = $2 AND name = $3",
-    Vs = [MetricID, Namespace, TagName],
-    case pgapp:equery(Q, Vs) of
-        {ok, _Count} ->
-            ok;
-        E ->
-            E
+            end
     end.
 
 %%====================================================================
@@ -248,60 +218,34 @@ tdelta(T0) ->
 strip_tpl(L) ->
     [E || {E} <- L].
 
-get_id(Collection, Metric, Bucket, Key) ->
-    T0 = erlang:system_time(),
-    Q = "SELECT id FROM " ?MET_TABLE " WHERE "
-        "collection = $1 AND "
-        "metric = $2 AND "
-        "bucket = $3 AND "
-        "key = $4",
-    Vs = [Collection, Metric, Bucket, Key],
-    case pgapp:equery(Q, Vs) of
-        {ok, [_], [{ID}]} ->
-            lager:debug("[dqe_idx:pg:get_id/4] Query too ~pms: ~s <- ~p",
-                        [tdelta(T0), Q, Vs]),
-
-            {ok, ID};
-        {ok, _, _} ->
-            not_found;
+delete_tag(MetricID, Namespace, TagName) ->
+    {ok, Q, Vs} = command_builder:delete_tag(MetricID, Namespace, TagName),
+    case execute({command, "delete_tag/3", Q, Vs}) of
+        {ok, _Count, _Rows} ->
+            ok;
         E ->
-            lager:info("[dqe_idx:pg:get_id/4] Query failed after ~pms:"
-                       " ~s <- ~p: ~p", [tdelta(T0), Q, Vs, E]),
             E
     end.
-
-add_tags(MID, Collection, Tags) ->
-    Q = "INSERT INTO " ?DIM_TABLE " "
-        "(metric_id, collection, namespace, name, value) VALUES ",
-    OnConflict = "DO NOTHING",
-    build_tags(MID, Collection, 1, OnConflict, Tags, Q, []).
-
-update_tags(MID, Collection, Tags) ->
-    Q = "INSERT INTO " ?DIM_TABLE " "
-        "(metric_id, collection, namespace, name, value) VALUES ",
-    OnConflict = "ON CONSTRAINT dimensions_metric_id_namespace_name_key "
-        "DO UPDATE SET value = excluded.value",
-    build_tags(MID, Collection, 1, OnConflict, Tags, Q, []).
-
-build_tags(MID, Collection, P, OnConflict, [{NS, N, V}], Q, Vs) ->
-    {[Q, tag_values(P), " ON CONFLICT ", OnConflict],
-     lists:reverse([V, N, NS, Collection, MID | Vs])};
-
-build_tags(MID, Collection, P, OnConflict, [{NS, N, V} | Tags], Q, Vs) ->
-    Q1 = [Q, tag_values(P), ","],
-    Vs1 = [V, N, NS, Collection, MID | Vs],
-    build_tags(MID, Collection, P+5, OnConflict, Tags, Q1, Vs1).
-
-tag_values(P)  ->
-    [" ($", query_builder:i2l(P), ", "
-     "$", query_builder:i2l(P + 1), ", "
-     "$", query_builder:i2l(P + 2), ", "
-     "$", query_builder:i2l(P + 3), ", "
-     "$", query_builder:i2l(P + 4), ")"].
 
 execute({select, Name, Q, Vs}) ->
     T0 = erlang:system_time(),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:~p] Query took ~pms: ~s <- ~p",
                 [Name, tdelta(T0), Q, Vs]),
-    Rows.
+    Rows;
+execute({command, Name, Q, Vs}) ->
+    T0 = erlang:system_time(),
+    case pgapp:equery(Q, Vs) of
+        {ok, Count} ->
+            lager:debug("[dqe_idx:pg:~p] Query took ~pms: ~s <- ~p",
+                        [Name, tdelta(T0), Q, Vs]),
+            {ok, Count, []};
+        {ok, Count, _Cols, Rows} ->
+            lager:debug("[dqe_idx:pg:~p] Query took ~pms: ~s <- ~p",
+                        [Name, tdelta(T0), Q, Vs]),
+            {ok, Count, Rows};
+        E ->
+            lager:info("[dqe_idx:pg:~p] Query failed after ~pms: ~s <- ~p:"
+                       " ~p", [Name, tdelta(T0), Q, Vs, E]),
+            E
+    end.

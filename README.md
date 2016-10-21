@@ -33,4 +33,4 @@ of Postgres in the `datadir` directory.
 
 Alternatively, use make to run all:
 
-    make eqc_test # Runs setup, EQC and teardown scripts
+    make eqc-test # Runs setup, EQC and teardown scripts
