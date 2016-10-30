@@ -23,7 +23,7 @@ init() ->
     Opts1 = [{O, application:get_env(dqe_idx_pg, O, undefined)}
              || O <- Opts],
     {Host, Port} = case application:get_env(dqe_idx_pg, server) of
-        {ok, Host, Port} ->
+        {ok, {Host, Port}} ->
             {Host, Port};
         _ ->
             {ok, Host} = application:get_env(dqe_idx_pg, host),
