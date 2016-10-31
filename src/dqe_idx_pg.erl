@@ -23,12 +23,12 @@ init() ->
     Opts1 = [{O, application:get_env(dqe_idx_pg, O, undefined)}
              || O <- Opts],
     {Host, Port} = case application:get_env(dqe_idx_pg, server) of
-        {ok, {Host, Port}} ->
-            {Host, Port};
+        {ok, {H, P}} ->
+            {H, P};
         _ ->
-            {ok, Host} = application:get_env(dqe_idx_pg, host),
-            {ok, Port} = application:get_env(dqe_idx_pg, port),
-            {Host, Port}
+            {ok, H} = application:get_env(dqe_idx_pg, host),
+            {ok, P} = application:get_env(dqe_idx_pg, port),
+            {H, P}
         end,
     pgapp:connect([{host, Host}, {port, Port} | Opts1]).
 
