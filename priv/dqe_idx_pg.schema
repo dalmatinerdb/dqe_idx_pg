@@ -1,9 +1,21 @@
 %% -*- erlang -*-
 
-%% @doc The TCP endpoint for the backend server.
+%% @doc The TCP endpoint for the backend server. Doesn't support hostnames.
+%% This setting overwrites backend_host and backend_port connections.
 {mapping, "idx.pg.backend", "dqe_idx_pg.server",
- [{default, {"127.0.0.1", 5432}},
-  {datatype, ip}]}.
+  [{datatype, ip}]}.
+
+%% @doc The TCP hostname or IP for the backend server.
+%% Set this or backend_server.
+{mapping, "idx.pg.backend_host", "dqe_idx_pg.host",
+ [{default, "127.0.0.1"},
+  {datatype, string}]}.
+
+%% @doc The TCP port for the backend server
+%% Set this or backend_server.
+{mapping, "idx.pg.backend_port, "dqe_idx_pg.port",
+ [{default, 5432},
+  {datatype, integer}]}.
 
 %% @doc Initial number of conneciton pool workers
 {mapping, "idx.pg.size", "dqe_idx_pg.size",

@@ -22,7 +22,14 @@ init() ->
     Opts = [size, max_overflow, database, username, password],
     Opts1 = [{O, application:get_env(dqe_idx_pg, O, undefined)}
              || O <- Opts],
-    {ok, {Host, Port}} = application:get_env(dqe_idx_pg, server),
+    {Host, Port} = case application:get_env(dqe_idx_pg, server) of
+        {ok, {H, P}} ->
+            {H, P};
+        _ ->
+            {ok, H} = application:get_env(dqe_idx_pg, host),
+            {ok, P} = application:get_env(dqe_idx_pg, port),
+            {H, P}
+        end,
     pgapp:connect([{host, Host}, {port, Port} | Opts1]).
 
 lookup(Query) ->
