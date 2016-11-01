@@ -13,7 +13,7 @@
 
 %% @doc The TCP port for the backend server
 %% Set this or backend_server.
-{mapping, "idx.pg.backend_port, "dqe_idx_pg.port",
+{mapping, "idx.pg.backend_port", "dqe_idx_pg.port",
  [{default, 5432},
   {datatype, integer}]}.
 
