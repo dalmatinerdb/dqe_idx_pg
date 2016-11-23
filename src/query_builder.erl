@@ -1,6 +1,6 @@
 -module(query_builder).
 
--export([collections_query/0, metrics_query/1, metrics_query/3,
+-export([collections_query/0, metrics_query/1, metrics_query/4,
          namespaces_query/1, namespaces_query/2,
          lookup_query/2, lookup_tags_query/1,
          tags_query/2, tags_query/3, add_tags/2, update_tags/2,
@@ -42,11 +42,12 @@ metrics_query(Collection)
     Values = [Collection],
     {ok, Query, Values}.
 
-metrics_query(Collection, Prefix, Depth)
+metrics_query(Collection, Prefix, Tags, Depth)
   when is_binary(Collection),
        is_list(Prefix),
+       is_list(Tags),
        Depth > 0 ->
-    {_N, MetricVals, MetricPredicate} = metric_variant_where(Prefix, 6),
+    {_N, MetricVals, MetricPredicate} = metric_variant_where(Prefix, Tags, 6),
     Query = ["SELECT DISTINCT metric[$1:$2]",
              "FROM ", ?MET_TABLE, " ",
              "WHERE metric[$3:$4] IS NOT NULL AND collection = $5 "],
@@ -334,13 +335,28 @@ metric_where(N, Metric) ->
 
 %% Example output:
 %% AND metric[1:2] = '{base, cpu}'
-metric_variant_where([], N) ->
-    {N, [], ""};
-metric_variant_where(Prefix, N) ->
+metric_variant_where([], Tags, N) ->
+    metric_variant_tags(Tags, N);
+metric_variant_where(Prefix, Tags, N) ->
     L = length(Prefix),
     Pred = ["AND metric[1:$", i2l(N), "] = $", i2l(N + 1), " "],
-    Values = [L, Prefix],
-    {N + 2, Values, Pred}.
+    {N1, TagPairs, TagPredicate} = metric_variant_tags(Tags, N + 2),
+    {N1, [L, Prefix | TagPairs], Pred ++ TagPredicate}.
+
+%% Example output:
+%% id IN (SELECT metrict_id FROM dimesions WHERE ..)
+metric_variant_tags([], N) ->
+    {N, [], ""};
+metric_variant_tags(Tags, N) ->
+    Clauses = [{'=', {tag, Ns, Name}, V} || {Ns, Name, V} <- Tags],
+    Where = lists:foldl(fun combine_clause/2, {}, Clauses),
+    {N1, Values, Pred} = build_tag_lookup(Where, N),
+    {N1, Values, [" AND " | Pred]}.
+
+combine_clause(C, {}) ->
+    C;
+combine_clause(C, Acc) ->
+    {'and', C, Acc}.
 
 grouping_where([], _) ->
     "";

@@ -68,6 +68,9 @@ tag_name() ->
 tag() ->
     {tag_name(), tag_ns(), binary()}.
 
+tags() ->
+    list(tag()).
+
 where_tag() ->
     frequency(
       [{10, {tag, tag_name(), non_empty_binary()}},

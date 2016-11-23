@@ -5,7 +5,7 @@
 -compile(export_all).
 
 -import(eqc_helper, [lookup/0, lookup_tags/0, collection/0, prefix/0,
-                     pos_int/0, metric/0, namespace/0, tag_name/0,
+                     pos_int/0, metric/0, namespace/0, tags/0, tag_name/0,
                      with_connection/1]).
 
 -define(M, query_builder).
@@ -38,11 +38,12 @@ prop_lookup_tags() ->
         end
     ).
 
-prop_metrics_by_prefix() ->
-    ?FORALL({Collection, Prefix, Depth}, {collection(), prefix(), pos_int()},
+prop_metrics_by_criteria() ->
+    ?FORALL({Collection, Prefix, Tags, Depth},
+            {collection(), prefix(), tags(), pos_int()},
         begin
             Fun = fun(C) ->
-                {ok, Q, _V} = ?M:metrics_query(Collection, Prefix, Depth),
+                {ok, Q, _V} = ?M:metrics_query(Collection, Prefix, Tags, Depth),
                 {Res, _} = epgsql:parse(C, Q),
                 Res
             end,
