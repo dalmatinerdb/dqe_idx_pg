@@ -285,14 +285,16 @@ build_tag_lookup({'or', L, R}, N, TagPairs) ->
     {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
     {N2, TagPairs2, ["(", Str1, " OR ", Str2, ")"]};
 build_tag_lookup({'=', {tag, NS, K}, V}, NIn, Vals) ->
-    Str = ["id IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE ",
-           " namespace = $", i2l(NIn),
+    Str = ["id IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE",
+           " collection = $1",
+           " AND namespace = $", i2l(NIn),
            " AND name = $", i2l(NIn+1),
            " AND value = $", i2l(NIn+2), ")"],
     {NIn+3, [NS, K, V | Vals], Str};
 build_tag_lookup({'!=', {tag, NS, K}, V}, NIn, Vals) ->
-    Str = ["id NOT IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE ",
-           " namespace = $", i2l(NIn),
+    Str = ["id NOT IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE",
+           " collection = $1",
+           " AND namespace = $", i2l(NIn),
            " AND name = $", i2l(NIn+1),
            " AND value = $", i2l(NIn+2), ")"],
     {NIn+3, [NS, K, V | Vals], Str}.
