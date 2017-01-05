@@ -104,7 +104,7 @@ lookup_tags_query({in, Bucket, Metric, Where})
         ?DIM_TABLE ".metric_id = id "
         "WHERE " ?MET_TABLE ".collection = $1 and metric = $2"
         "AND ",
-    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where),
+    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 3),
     Values = [Bucket, Metric | TagPairs],
     {ok, Query ++ TagPredicate, Values}.
 
@@ -270,33 +270,58 @@ glob_to_tags([E | R] , N, Tags) ->
     T = {'=', {tag, <<"ddb">>, <<"part_", PosBin/binary>>}, E},
     glob_to_tags(R, N + 1, [T | Tags]).
 
-build_tag_lookup(Where) ->
-    build_tag_lookup(Where, 3).
-
 build_tag_lookup(Where, N) ->
-    build_tag_lookup(Where, N, []).
+    Conditions = collect_tag_conditions(Where),
+    build_tag_flattened(Conditions, N, [], []).
 
-build_tag_lookup({'and', L, R}, N, TagPairs) ->
-    {N1, TagPairs1, Str1} = build_tag_lookup(L, N, TagPairs),
-    {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
-    {N2, TagPairs2, ["(", Str1, " AND ", Str2, ")"]};
-build_tag_lookup({'or', L, R}, N, TagPairs) ->
-    {N1, TagPairs1, Str1} = build_tag_lookup(L, N, TagPairs),
-    {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
-    {N2, TagPairs2, ["(", Str1, " OR ", Str2, ")"]};
-build_tag_lookup({'=', {tag, NS, K}, V}, NIn, Vals) ->
-    Str = ["id IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE",
-           " collection = $1",
-           " AND namespace = $", i2l(NIn),
+%% Give that intersection is associative operation:
+%% A ∩ (B ∩ C) => (A ∩ B) ∩ C
+%% ,we can just flatten all nested set operations and join all of them into 
+%% intersection with more argumentas
+collect_tag_conditions({'and', L, R}) ->
+    LConds = collect_tag_conditions(L),
+    RConds = collect_tag_conditions(R),
+    LConds ++ RConds;
+
+%% Based on set theory rule, we transform all unions with intersections to
+%% intersections of widened sets.
+%% A ∪ (B ∩ C) => (A ∪ B) ∩ (A ∪ B)
+collect_tag_conditions({'or', L, R}) ->
+    LConds = collect_tag_conditions(L),
+    RConds = collect_tag_conditions(R),
+    [LUnion ++ RUnion || LUnion <- LConds, RUnion <- RConds ];
+collect_tag_conditions(Cond) ->
+    [[Cond]].
+
+build_tag_flattened([Group], N, Values, Query) ->
+    build_tag_group(Group, N, Values, Query);
+build_tag_flattened([Group | Rest], N, Values, Query) ->
+    {N1, QPart, Values1} = build_tag_group(Group, N, Values, Query),
+    Query1 = Query ++ [" AND " | QPart],
+    build_tag_flattened(Rest, N1, Values1, Query1).
+
+build_tag_group(Conditions, N, Values, Query) when length(Conditions) > 0 ->
+    Query1 = Query ++ ["id IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE "],
+    {N1, Values1, Query2} = build_tag_conditions(Conditions, N, Values, Query1),
+    Query3 = Query2 ++ [")"],
+    {N1, Values1, Query3}.
+
+build_tag_conditions([Condition], N, Vals, Query) ->
+    {N1, Vals1, Str} = build_tag_condition(Condition, N, Vals),
+    {N1, Vals1, Query ++ Str};
+build_tag_conditions([Condition | Rest], N, Vals, Query) ->
+    {N1, Vals1, Str} = build_tag_condition(Condition, N, Vals),
+    build_tag_conditions(Rest, N1, Vals1, Query ++ [" OR " | Str]).
+
+build_tag_condition({'=', {tag, NS, K}, V}, NIn, Vals) ->
+    Str = ["(namespace = $", i2l(NIn),
            " AND name = $", i2l(NIn+1),
-           " AND value = $", i2l(NIn+2), ")"],
+           " AND value = $", i2l(NIn+2)],
     {NIn+3, [NS, K, V | Vals], Str};
-build_tag_lookup({'!=', {tag, NS, K}, V}, NIn, Vals) ->
-    Str = ["id NOT IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE",
-           " collection = $1",
-           " AND namespace = $", i2l(NIn),
+build_tag_condition({'!=', {tag, NS, K}, V}, NIn, Vals) ->
+    Str = ["(namespace = $", i2l(NIn),
            " AND name = $", i2l(NIn+1),
-           " AND value = $", i2l(NIn+2), ")"],
+           " AND value = $", i2l(NIn+2)],
     {NIn+3, [NS, K, V | Vals], Str}.
 
 build_add_tags(MID, P, Fn, [{NS, N, V}], Q, Vs) ->
