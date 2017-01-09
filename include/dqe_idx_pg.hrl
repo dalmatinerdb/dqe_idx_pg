@@ -1,5 +1,6 @@
 -define(DIM_TABLE, "dimensions").
 -define(MET_TABLE, "metrics").
+-define(MET_TREE, "mtree").
 
 -type collection() :: binary().
 -type metric() :: [binary()].

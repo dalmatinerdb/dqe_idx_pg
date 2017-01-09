@@ -42,6 +42,15 @@ metrics_query(Collection)
     Values = [Collection],
     {ok, Query, Values}.
 
+metrics_query(Collection, Prefix, 1)
+  when is_binary(Collection),
+       is_list(Prefix) ->
+    Query = ["SELECT DISTINCT name ",
+             "FROM ", ?MET_TREE, " ",
+             "WHERE collection = $1 AND parent = $2"],
+    Values = [Collection, Prefix],
+    {ok, Query, Values};
+
 metrics_query(Collection, Prefix, Depth)
   when is_binary(Collection),
        is_list(Prefix),

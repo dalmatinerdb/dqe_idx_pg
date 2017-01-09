@@ -11,14 +11,22 @@ CREATE TABLE metrics (
     bucket      text NOT NULL,
     key         text[] NOT NULL
 );
+
 GRANT ALL On metrics TO ddb;
 GRANT ALL On metrics_id_seq TO ddb;
-
 CREATE UNIQUE INDEX metrics_idx_id ON metrics (id);
 CREATE UNIQUE INDEX metrics_idx ON metrics (collection, metric, bucket, key);
 CREATE UNIQUE INDEX metrics_idx_id_collection ON metrics (id, collection);
 CREATE INDEX metrics_idx_collection ON metrics USING btree (collection);
 CREATE INDEX metrics_idx_metric ON metrics USING btree (metric);
+
+CREATE MATERIALIZED VIEW mtree AS
+SELECT DISTINCT ON (collection, parent, name)
+                    collection, name, metric[1:level-1] AS parent
+                FROM metrics, unnest(metric) WITH ORDINALITY y(name, level);
+
+GRANT ALL On mtree TO ddb;
+CREATE INDEX mtree_idx ON mtree (collection, parent);
 
 CREATE TABLE dimensions (
     metric_id bigserial REFERENCES metrics (id) ON DELETE CASCADE,
