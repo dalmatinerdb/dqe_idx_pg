@@ -20,13 +20,41 @@ CREATE UNIQUE INDEX metrics_idx_id_collection ON metrics (id, collection);
 CREATE INDEX metrics_idx_collection ON metrics USING btree (collection);
 CREATE INDEX metrics_idx_metric ON metrics USING btree (metric);
 
-CREATE MATERIALIZED VIEW mtree AS
-SELECT DISTINCT ON (collection, parent, name)
-                    collection, name, metric[1:level-1] AS parent
-                FROM metrics, unnest(metric) WITH ORDINALITY y(name, level);
+-- Materialized view for quicker tree travelsal
+CREATE TABLE mtree (
+    collection text NOT NULL,
+    parent     text[] NOT NULL,
+    name       text NOT NULL,
+    UNIQUE(collection, parent, name)
+);
 
 GRANT ALL On mtree TO ddb;
-CREATE INDEX mtree_idx ON mtree (collection, parent);
+
+CREATE INDEX mtree_collection_parent_idx ON mtree (collection, parent);
+
+-- Mtree table is acting as 'eager materialized view' that is populated by triggers
+CREATE FUNCTION add_metric_tree_node() RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+     BEGIN
+        INSERT INTO mtree
+            SELECT new.collection, new.metric[1:level-1] AS parent, m.name
+               FROM unnest(new.metric) WITH ORDINALITY m(name, level)
+               ON CONFLICT DO NOTHING;
+        RETURN new;
+     END;
+$$;
+CREATE TRIGGER on_metircs_insert AFTER INSERT ON metrics
+    FOR EACH row EXECUTE PROCEDURE add_metric_tree_node();
+
+-- Mtree table will be populated by triggers with incoming data, but if it is
+-- created after metrics table has already some records, it should be pre-seeded
+-- with query:
+--
+-- INSERT INTO mtree (collection, parent, name)
+--     SELECT DISTINCT ON (collection, parent, name) collection, metric[1:level-1] AS parent, name
+--         FROM metrics, unnest(metric) WITH ORDINALITY m(name, level)
+--     ON CONFLICT DO NOTHING;
 
 CREATE TABLE dimensions (
     metric_id bigserial REFERENCES metrics (id) ON DELETE CASCADE,
