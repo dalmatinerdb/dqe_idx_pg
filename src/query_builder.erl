@@ -270,10 +270,15 @@ glob_to_tags([E | R] , N, Tags) ->
     T = {'=', {tag, <<"ddb">>, <<"part_", PosBin/binary>>}, E},
     glob_to_tags(R, N + 1, [T | Tags]).
 
+%% Build query part responsible for narowing down results to condition defeined
+%% by where statement.
+
 build_tag_lookup(Where, N) ->
     Conditions = collect_tag_conditions(Where),
     build_tag_flattened(Conditions, N, [], []).
 
+%% Flatten nested conditions into 2 levels (a list of list).
+%%
 %% Give that intersection is associative operation:
 %% A ∩ (B ∩ C) => (A ∩ B) ∩ C
 %% ,we can just flatten all nested set operations and join all of them into 
@@ -282,7 +287,6 @@ collect_tag_conditions({'and', L, R}) ->
     LConds = collect_tag_conditions(L),
     RConds = collect_tag_conditions(R),
     LConds ++ RConds;
-
 %% Based on set theory rule, we transform all unions with intersections to
 %% intersections of widened sets.
 %% A ∪ (B ∩ C) => (A ∪ B) ∩ (A ∪ B)
