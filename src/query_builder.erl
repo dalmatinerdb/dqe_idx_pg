@@ -296,17 +296,14 @@ collect_tag_conditions({'or', L, R}) ->
 collect_tag_conditions(Cond) ->
     [[Cond]].
 
-append_tag_groups([Group], N, Values, Query) ->
-    append_tag_group(Group, N, Values, Query);
-append_tag_groups([Group | Rest], N, Values, Query) ->
-    {N1, Values1, Query1} = append_tag_groups(Rest, N, Values, Query),
-    append_tag_group(Group, N1, Values1, Query1 ++ " AND ").
-
-append_tag_group(Conditions, N, Values, Query) when length(Conditions) > 0 ->
+append_tag_groups([Conditions], N, Values, Query) when length(Conditions) > 0->
     Query1 = Query ++ ["id IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE "],
     {N1, Values1, Query2} = append_tag_conditions(Conditions, N, Values, Query1),
     Query3 = Query2 ++ [")"],
-    {N1, Values1, Query3}.
+    {N1, Values1, Query3};
+append_tag_groups([Group | Rest], N, Values, Query) ->
+    {N1, Values1, Query1} = append_tag_groups([Group], N, Values, Query),
+    append_tag_groups(Rest, N1, Values1, Query1 ++ " AND ").
 
 append_tag_conditions([Condition], N, Vals, Query) ->
     {N1, Vals1, QCondition} = build_tag_condition(Condition, N, Vals),
@@ -319,12 +316,12 @@ build_tag_condition({'=', {tag, NS, K}, V}, NIn, Vals) ->
     Str = ["(namespace = $", i2l(NIn),
            " AND name = $", i2l(NIn+1),
            " AND value = $", i2l(NIn+2), ")"],
-    {NIn+3, [NS, K, V | Vals], Str};
+    {NIn+3, Vals ++ [NS, K, V], Str};
 build_tag_condition({'!=', {tag, NS, K}, V}, NIn, Vals) ->
     Str = ["(namespace = $", i2l(NIn),
            " AND name = $", i2l(NIn+1),
            " AND value = $", i2l(NIn+2), ")"],
-    {NIn+3, [NS, K, V | Vals], Str}.
+    {NIn+3, Vals ++ [NS, K, V], Str}.
 
 build_add_tags(MID, P, Fn, [{NS, N, V}], Q, Vs) ->
     {[Q, add_tag(Fn, P)], lists:reverse([V, N, NS, MID | Vs])};
