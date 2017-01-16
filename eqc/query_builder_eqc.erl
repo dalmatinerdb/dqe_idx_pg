@@ -17,24 +17,26 @@
 prop_lookup() ->
     ?FORALL({LQuery}, {lookup()},
         begin
+            {ok, Q, _V} = ?M:lookup_query(LQuery, []),
             Fun = fun(C) ->
-                {ok, Q, _V} = ?M:lookup_query(LQuery, []),
-                {Res, _} = epgsql:parse(C, Q),
-                Res
+                epgsql:parse(C, Q)
             end,
-            ok =:= with_connection(Fun)
+            {Res, Reason} = with_connection(Fun),
+            ?WHENFAIL(io:format(user, "Invalid query ~s:~n  ~p~n", [Q, Reason]),
+                      ok =:= Res)
         end
     ).
 
 prop_lookup_tags() ->
     ?FORALL({LTQuery}, {lookup_tags()},
         begin
+            {ok, Q, _V} = ?M:lookup_tags_query(LTQuery),
             Fun = fun(C) ->
-                {ok, Q, _V} = ?M:lookup_tags_query(LTQuery),
-                {Res, _} = epgsql:parse(C, Q),
-                Res
+                epgsql:parse(C, Q)
             end,
-            ok =:= with_connection(Fun)
+            {Res, Reason} = with_connection(Fun),
+            ?WHENFAIL(io:format(user, "Invalid query ~s:~n  ~p~n", [Q, Reason]),
+                      ok =:= Res)
         end
     ).
 

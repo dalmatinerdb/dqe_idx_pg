@@ -102,8 +102,7 @@ lookup_tags_query({in, Bucket, Metric, Where})
         "FROM " ?DIM_TABLE " "
         "LEFT JOIN " ?MET_TABLE " ON "
         ?DIM_TABLE ".metric_id = id "
-        "WHERE " ?MET_TABLE ".collection = $1 and metric = $2"
-        "AND ",
+        "WHERE " ?MET_TABLE ".collection = $1 AND metric = $2 AND ",
     {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 3),
     Values = [Bucket, Metric | TagPairs],
     {ok, Query ++ TagPredicate, Values}.
@@ -275,7 +274,7 @@ glob_to_tags([E | R] , N, Tags) ->
 
 build_tag_lookup(Where, N) ->
     Conditions = collect_tag_conditions(Where),
-    build_tag_flattened(Conditions, N, [], []).
+    append_tag_groups(Conditions, N, [], []).
 
 %% Flatten nested conditions into 2 levels (a list of list).
 %%
@@ -297,35 +296,34 @@ collect_tag_conditions({'or', L, R}) ->
 collect_tag_conditions(Cond) ->
     [[Cond]].
 
-build_tag_flattened([Group], N, Values, Query) ->
-    build_tag_group(Group, N, Values, Query);
-build_tag_flattened([Group | Rest], N, Values, Query) ->
-    {N1, QPart, Values1} = build_tag_group(Group, N, Values, Query),
-    Query1 = Query ++ [" AND " | QPart],
-    build_tag_flattened(Rest, N1, Values1, Query1).
+append_tag_groups([Group], N, Values, Query) ->
+    append_tag_group(Group, N, Values, Query);
+append_tag_groups([Group | Rest], N, Values, Query) ->
+    {N1, Values1, Query1} = append_tag_groups(Rest, N, Values, Query),
+    append_tag_group(Group, N1, Values1, Query1 ++ " AND ").
 
-build_tag_group(Conditions, N, Values, Query) when length(Conditions) > 0 ->
+append_tag_group(Conditions, N, Values, Query) when length(Conditions) > 0 ->
     Query1 = Query ++ ["id IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE "],
-    {N1, Values1, Query2} = build_tag_conditions(Conditions, N, Values, Query1),
+    {N1, Values1, Query2} = append_tag_conditions(Conditions, N, Values, Query1),
     Query3 = Query2 ++ [")"],
     {N1, Values1, Query3}.
 
-build_tag_conditions([Condition], N, Vals, Query) ->
-    {N1, Vals1, Str} = build_tag_condition(Condition, N, Vals),
-    {N1, Vals1, Query ++ Str};
-build_tag_conditions([Condition | Rest], N, Vals, Query) ->
-    {N1, Vals1, Str} = build_tag_condition(Condition, N, Vals),
-    build_tag_conditions(Rest, N1, Vals1, Query ++ [" OR " | Str]).
+append_tag_conditions([Condition], N, Vals, Query) ->
+    {N1, Vals1, QCondition} = build_tag_condition(Condition, N, Vals),
+    {N1, Vals1, Query ++ QCondition};
+append_tag_conditions([Condition | Rest], N, Vals, Query) ->
+    {N1, Vals1, QCondition} = build_tag_condition(Condition, N, Vals),
+    append_tag_conditions(Rest, N1, Vals1, Query ++ QCondition ++ " OR ").
 
 build_tag_condition({'=', {tag, NS, K}, V}, NIn, Vals) ->
     Str = ["(namespace = $", i2l(NIn),
            " AND name = $", i2l(NIn+1),
-           " AND value = $", i2l(NIn+2)],
+           " AND value = $", i2l(NIn+2), ")"],
     {NIn+3, [NS, K, V | Vals], Str};
 build_tag_condition({'!=', {tag, NS, K}, V}, NIn, Vals) ->
     Str = ["(namespace = $", i2l(NIn),
            " AND name = $", i2l(NIn+1),
-           " AND value = $", i2l(NIn+2)],
+           " AND value = $", i2l(NIn+2), ")"],
     {NIn+3, [NS, K, V | Vals], Str}.
 
 build_add_tags(MID, P, Fn, [{NS, N, V}], Q, Vs) ->
