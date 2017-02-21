@@ -20,7 +20,7 @@ collections_query() ->
             "   SELECT (SELECT MIN(collection) FROM " ?MET_TABLE
             "     WHERE collection > t.collection)"
             "   FROM t WHERE t.collection IS NOT NULL"
-            "   )"
+            "   ) "
             "SELECT collection FROM t WHERE collection IS NOT NULL",
     Values = [],
     {ok, Query, Values}.
@@ -96,15 +96,15 @@ lookup_tags_query({in, Collection, Metric})
         "WHERE " ?MET_TABLE ".collection = $1 and metric = $2",
     Values = [Collection, Metric],
     {ok, Query, Values};
-lookup_tags_query({in, Bucket, Metric, Where})
+lookup_tags_query({in, Collection, Metric, Where})
   when is_list(Metric) ->
     Query = "SELECT DISTINCT namespace, name, value "
         "FROM " ?DIM_TABLE " "
         "LEFT JOIN " ?MET_TABLE " ON "
         ?DIM_TABLE ".metric_id = id "
         "WHERE " ?MET_TABLE ".collection = $1 AND metric = $2 AND ",
-    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 3),
-    Values = [Bucket, Metric | TagPairs],
+    {_N, TagPairs, TagPredicate} = build_tag_lookup(Collection, Where, 3),
+    Values = [Collection, Metric | TagPairs],
     {ok, Query ++ TagPredicate, Values}.
 
 glob_query(Bucket, Globs) ->
@@ -221,7 +221,7 @@ build_lookup_query(Collection, Metric, Grouping)
     Values = [Collection | MetricName ++ FlatGrouping],
     {ok, Query, Values}.
 
-build_lookup_query(Bucket, Metric, Where, Grouping)
+build_lookup_query(Collection, Metric, Where, Grouping)
   when is_list(Metric); Metric =:= undefined ->
     GroupingCount = length(Grouping),
     GroupingNames = grouping_names(GroupingCount),
@@ -237,10 +237,10 @@ build_lookup_query(Bucket, Metric, Where, Grouping)
     {_N, TagPairs, TagPredicate} =
         %% We need to multipy count by two since we got names
         %% and namespaces
-        build_tag_lookup(Where, N + GroupingCount * 2),
+        build_tag_lookup(Collection, Where, N + GroupingCount * 2),
     FlatGrouping = lists:flatten([[Namespace, Name] ||
                                      {Namespace, Name} <- Grouping]),
-    Values = [Bucket | MetricName ++ FlatGrouping ++ TagPairs],
+    Values = [Collection | MetricName ++ FlatGrouping ++ TagPairs],
     {ok, Query ++ TagPredicate, Values}.
 
 glob_where(Bucket, Query, Glob) ->
@@ -269,18 +269,22 @@ glob_to_tags([E | R] , N, Tags) ->
     T = {'=', {tag, <<"ddb">>, <<"part_", PosBin/binary>>}, E},
     glob_to_tags(R, N + 1, [T | Tags]).
 
-%% Build query part responsible for narowing down results to condition defeined
+%% Build query part responsible for narrowing down results to condition defined
 %% by where statement.
-
 build_tag_lookup(Where, N) ->
+    build_tag_lookup(undefined, Where, N).
+
+build_tag_lookup(Collection, Where, N) ->
     Conditions = collect_tag_conditions(Where),
-    append_tag_groups(Conditions, N, [], []).
+    {N1, Vs, Q} = append_tag_groups(Collection, Conditions, N, [], []),
+    Q1 = ["id IN (", Q, ")"],
+    {N1, Vs, Q1}.
 
 %% Flatten nested conditions into 2 levels (a list of list).
 %%
 %% Give that intersection is associative operation:
 %% A ∩ (B ∩ C) => (A ∩ B) ∩ C
-%% ,we can just flatten all nested set operations and join all of them into 
+%% ,we can just flatten all nested set operations and join all of them into
 %% intersection with more argumentas
 collect_tag_conditions({'and', L, R}) ->
     LConds = collect_tag_conditions(L),
@@ -288,7 +292,7 @@ collect_tag_conditions({'and', L, R}) ->
     LConds ++ RConds;
 %% Based on set theory rule, we transform all unions with intersections to
 %% intersections of widened sets.
-%% A ∪ (B ∩ C) => (A ∪ B) ∩ (A ∪ B)
+%% A ∪ (B ∩ C) => (A ∪ B) ∩ (A ∪ C)
 collect_tag_conditions({'or', L, R}) ->
     LConds = collect_tag_conditions(L),
     RConds = collect_tag_conditions(R),
@@ -296,14 +300,18 @@ collect_tag_conditions({'or', L, R}) ->
 collect_tag_conditions(Cond) ->
     [[Cond]].
 
-append_tag_groups([Conditions], N, Values, Query) when length(Conditions) > 0->
-    Query1 = Query ++ ["id IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE "],
-    {N1, Values1, Query2} = append_tag_conditions(Conditions, N, Values, Query1),
-    Query3 = Query2 ++ [")"],
-    {N1, Values1, Query3};
-append_tag_groups([Group | Rest], N, Values, Query) ->
-    {N1, Values1, Query1} = append_tag_groups([Group], N, Values, Query),
-    append_tag_groups(Rest, N1, Values1, Query1 ++ " AND ").
+append_tag_groups(undefined, [Conditions], N, Vs, Q)
+  when length(Conditions) > 0 ->
+    Q1 = Q ++ ["SELECT metric_id FROM " ?DIM_TABLE " WHERE "],
+    append_tag_conditions(Conditions, N, Vs, Q1);
+append_tag_groups(Collection, [Conditions], N, Vs, Q)
+  when length(Conditions) > 0 ->
+    Q1 = Q ++ ["SELECT metric_id FROM " ?DIM_TABLE " WHERE "
+               "collection = $", i2l(N), " AND "],
+    append_tag_conditions(Conditions, N + 1, [Collection | Vs], Q1);
+append_tag_groups(Collection, [Group | Rest], N, Vs, Q) ->
+    {N1, Vs1, Q1} = append_tag_groups(Collection, [Group], N, Vs, Q),
+    append_tag_groups(Collection, Rest, N1, Vs1, Q1 ++ " INTERSECT ").
 
 append_tag_conditions([Condition], N, Vals, Query) ->
     {N1, Vals1, QCondition} = build_tag_condition(Condition, N, Vals),
