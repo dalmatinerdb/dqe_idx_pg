@@ -308,7 +308,7 @@ append_tag_groups(Collection, [Conditions], N, Vs, Q)
   when length(Conditions) > 0 ->
     Q1 = Q ++ ["SELECT metric_id FROM " ?DIM_TABLE " WHERE "
                "collection = $", i2l(N), " AND "],
-    append_tag_conditions(Conditions, N + 1, [Collection | Vs], Q1);
+    append_tag_conditions(Conditions, N + 1, Vs ++ [Collection], Q1);
 append_tag_groups(Collection, [Group | Rest], N, Vs, Q) ->
     {N1, Vs1, Q1} = append_tag_groups(Collection, [Group], N, Vs, Q),
     append_tag_groups(Collection, Rest, N1, Vs1, Q1 ++ " INTERSECT ").
