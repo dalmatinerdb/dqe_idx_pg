@@ -21,24 +21,22 @@ collections_query() ->
             "     WHERE collection > t.collection)"
             "   FROM t WHERE t.collection IS NOT NULL"
             "   )"
-            "SELECT collection FROM t WHERE collection IS NOT NULL",
+            "SELECT collection FROM t",
     Values = [],
     {ok, Query, Values}.
 
 metrics_query(Collection)
   when is_binary(Collection) ->
     Query = "WITH RECURSIVE t AS ("
-            "   SELECT MIN(metric) AS metric FROM "
-            ?MET_TABLE
+            "   SELECT MIN(metric) AS metric FROM " ?MET_TABLE
             "     WHERE collection = $1"
             "   UNION ALL"
-            "   SELECT (SELECT MIN(metric) FROM "
-            ?MET_TABLE
+            "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
             "     WHERE metric > t.metric"
             "     AND collection = $1)"
             "   FROM t WHERE t.metric IS NOT NULL"
             "   )"
-            "SELECT metric FROM t WHERE metric IS NOT NULL",
+            "SELECT metric FROM t",
     Values = [Collection],
     {ok, Query, Values}.
 
@@ -46,14 +44,22 @@ metrics_query(Collection, Prefix, Depth)
   when is_binary(Collection),
        is_list(Prefix),
        Depth > 0 ->
-    {_N, MetricVals, MetricPredicate} = metric_variant_where(Prefix, 6),
-    Query = ["SELECT DISTINCT metric[$1:$2]",
-             "FROM ", ?MET_TABLE, " ",
-             "WHERE metric[$3:$4] IS NOT NULL AND collection = $5 "],
+    Query = "WITH RECURSIVE t AS("
+            "   SELECT MIN(metric) AS metric FROM " ?MET_TABLE
+            "     WHERE collection = $1"
+            "       AND metric > $2"
+            "   UNION ALL"
+            "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
+            "     WHERE metric > t.metric"
+            "       AND metric[$3:$4] <> t.metric[$3:$4]"
+            "       AND collection = $1)"
+            "   FROM t WHERE t.metric[1:$3] = $2"
+            "   )"
+            "SELECT metric FROM t",
     From = 1 + length(Prefix),
     To = From + Depth - 1,
-    Values = [From, To, From, To, Collection | MetricVals],
-    {ok, Query ++ MetricPredicate, Values}.
+    Values = [Collection, Prefix, From, To],
+    {ok, Query, Values}.
 
 namespaces_query(Collection)
   when is_binary(Collection) ->
@@ -331,16 +337,6 @@ metric_where(N, undefined) ->
 metric_where(N, Metric) ->
     MetricPredicate = [" AND metric = $", i2l(N), " "],
     {N + 1, {MetricPredicate, [Metric]}}.
-
-%% Example output:
-%% AND metric[1:2] = '{base, cpu}'
-metric_variant_where([], N) ->
-    {N, [], ""};
-metric_variant_where(Prefix, N) ->
-    L = length(Prefix),
-    Pred = ["AND metric[1:$", i2l(N), "] = $", i2l(N + 1), " "],
-    Values = [L, Prefix],
-    {N + 2, Values, Pred}.
 
 grouping_where([], _) ->
     "";
