@@ -51,14 +51,15 @@ metrics_query(Collection, Prefix, Depth)
             "   UNION ALL"
             "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
             "     WHERE metric > t.metric"
-            "       AND metric[$3:$4] <> t.metric[$3:$4]"
+            "       AND metric[1:$5] <> t.metric[1:$4]"
             "       AND collection = $1)"
             "   FROM t WHERE t.metric[1:$3] = $2"
             "   )"
-            "SELECT metric FROM t",
-    From = 1 + length(Prefix),
+            "SELECT metric[$4:$5] FROM t",
+    PrefLen = length(Prefix),
+    From = PrefLen + 1,
     To = From + Depth - 1,
-    Values = [Collection, Prefix, From, To],
+    Values = [Collection, Prefix, PrefLen, From, To],
     {ok, Query, Values}.
 
 namespaces_query(Collection)
