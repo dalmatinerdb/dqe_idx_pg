@@ -2,12 +2,21 @@
 
 -export([collections_query/0, metrics_query/1, metrics_query/3,
          namespaces_query/1, namespaces_query/2,
-         lookup_query/2, lookup_tags_query/1,
-         tags_query/2, tags_query/3, add_tags/2, update_tags/2,
+         tags_query/2, tags_query/3,
          values_query/3, values_query/4,
-         glob_query/2, get_id_query/4, i2l/1]).
+         lookup_query/2, lookup_tags_query/1,
+         glob_query/2]).
+
+%-ifdef(TEST).
+%% -export([i2l/1]).
+%-endif.
 
 -include("dqe_idx_pg.hrl").
+
+-define(NAMESPACE_PATTERN, "'^(([^:]|\\\\|\\:)+):'").
+-define(NAME_PATTERN, "'^(?:[^:]|\\\\|\\:)+:(.*)$'").
+
+%% TODO: Make sure namespace is encoded and decoded across the board
 
 %%====================================================================
 %% API
@@ -25,6 +34,7 @@ collections_query() ->
     Values = [],
     {ok, Query, Values}.
 
+%% TODO: check if using just UNION instead of UNION ALL would not perform better
 metrics_query(Collection)
   when is_binary(Collection) ->
     Query = "WITH RECURSIVE t AS ("
@@ -40,6 +50,10 @@ metrics_query(Collection)
     Values = [Collection],
     {ok, Query, Values}.
 
+%% TODO: for very short prefixes it may be easier to go old way with 
+%%   SELECT DISTINCT metric[1] FROM ...
+%% ,especially with partial indexes by collection.
+%% Benchmark IT!
 metrics_query(Collection, Prefix, Depth)
   when is_binary(Collection),
        is_list(Prefix),
@@ -64,56 +78,78 @@ metrics_query(Collection, Prefix, Depth)
 
 namespaces_query(Collection)
   when is_binary(Collection) ->
-    Query = "WITH RECURSIVE t AS ("
-            "   SELECT MIN(namespace) AS namespace FROM "
-            ?DIM_TABLE
-            "     WHERE collection = $1"
-            "   UNION ALL"
-            "   SELECT (SELECT MIN(namespace) FROM "
-            ?DIM_TABLE
-            "     WHERE namespace > t.namespace"
-            "     AND collection = $1)"
-            "   FROM t WHERE t.namespace IS NOT NULL"
-            "   )"
-            "SELECT namespace FROM t WHERE namespace IS NOT NULL",
-    Values = [Collection],
-    {ok, Query, Values}.
+    namespaces_query(Collection, undefined).
 
 namespaces_query(Collection, Metric)
   when is_binary(Collection),
-       is_list(Metric) ->
-    Q = "SELECT DISTINCT(namespace) FROM " ?DIM_TABLE " "
-        "LEFT JOIN " ?MET_TABLE " "
-        "ON " ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
-        "WHERE " ?MET_TABLE ".collection = $1 AND " ?MET_TABLE ".metric = $2",
-    Vs = [Collection, Metric],
-    {ok, Q, Vs}.
+       is_list(Metric); Metric =:= undefined ->
+    %% TODO: I need to decode namespace results somehow
+    {SubQ, SubV} = keys_subquery(Collection, Metric),
+    Query = "SELECT DISTINCT substring(key from " ?NAMESPACE_PATTERN ")"
+            "  FROM " ++ SubQ ++ " AS data(key)",
+    {ok, Query, SubV}.
 
-lookup_query({in, Collection, Metric}, Groupings) ->
-    build_lookup_query(Collection, Metric, Groupings);
-lookup_query({in, Bucket, Metric, Where}, Groupings) ->
-    build_lookup_query(Bucket, Metric, Where, Groupings).
+tags_query(Collection, Namespace)
+  when is_binary(Collection),
+       is_binary(Namespace) ->
+    tags_query(Collection, undefined, Namespace).
 
-lookup_tags_query({in, Collection, Metric})
-  when is_list(Metric) ->
-    Query = "SELECT DISTINCT namespace, name, value "
-        "FROM " ?DIM_TABLE " "
-        "LEFT JOIN " ?MET_TABLE " ON "
-        ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
-        "WHERE " ?MET_TABLE ".collection = $1 and metric = $2",
-    Values = [Collection, Metric],
-    {ok, Query, Values};
-lookup_tags_query({in, Bucket, Metric, Where})
-  when is_list(Metric) ->
-    Query = "SELECT DISTINCT namespace, name, value "
-        "FROM " ?DIM_TABLE " "
-        "LEFT JOIN " ?MET_TABLE " ON "
-        ?DIM_TABLE ".metric_id = id "
-        "WHERE " ?MET_TABLE ".collection = $1 and metric = $2"
-        "AND ",
-    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where),
-    Values = [Bucket, Metric | TagPairs],
-    {ok, Query ++ TagPredicate, Values}.
+tags_query(Collection, Metric, Namespace)
+  when is_binary(Collection),
+       is_list(Metric); Metric =:= undefined,
+       is_binary(Namespace)  ->
+    {SubQ, SubV} = keys_subquery(Collection, Metric),
+    I = length(SubV),
+    Query = ["SELECT DISTINCT substring(key from " ?NAME_PATTERN ")"
+             "  FROM ", SubQ, " AS data(key)"
+             "  WHERE key LIKE $" ++ i2l(I)],
+    Ns = encode_tag(Namespace, <<"%">>),
+    Values = SubV ++ [Ns],
+    {ok, Query, Values}.
+
+values_query(Collection, Namespace, Tag)
+  when is_binary(Collection),
+       is_binary(Namespace),
+       is_binary(Tag) ->
+    Query = "SELECT DISTINCT dimensions -> $2 FROM " ?MET_TABLE
+            "  WHERE collection = $1"
+            "    AND dimensions ? $2",
+    Tag1 = encode_tag(Namespace, Tag),
+    Values = [Collection, Tag1],
+    {ok, Query, Values}.
+
+values_query(Collection, Metric, Namespace, Tag)
+  when is_binary(Collection),
+       is_list(Metric),
+       is_binary(Namespace),
+       is_binary(Tag) ->
+    Query = "SELECT DISTINCT dimensions -> $3 FROM " ?MET_TABLE
+            "  WHERE collection = $1"
+            "    AND metric = $2"
+            "    AND dimensions ? $3",
+    Tag1 = encode_tag(Namespace, Tag),
+    Values = [Collection, Metric, Tag1],
+    {ok, Query, Values}.
+
+lookup_query(Lookup, ReadKeys) ->
+    {Condition, CVals} = lookup_condition(Lookup),
+    I = length(CVals),
+    Query = ["SELECT buket, key, avals(slice(dimensions, ", i2l(I + 1), "))"
+             "  FROM metrics WHERE " | Condition],
+    Keys = [encode_tag(Ns, Name) || {Ns, Name} <- ReadKeys],
+    Values = CVals ++ Keys,
+    {ok, Query, Values}.
+                                          
+lookup_tags_query(Lookup) ->
+    {Condition, CVals} = lookup_condition(Lookup),
+    Query = ["SELECT substring((kv).key from " ?NAMESPACE_PATTERN "),"
+             "       substring((kv).key from " ?NAME_PATTERN "),"
+             "       (kv).value"
+             "  FROM ("
+             "    SELECT DISTINCT each(dimensions)"
+             "      FROM metrics WHERE ", Condition,
+             "  ) AS data(kv)"],
+    {ok, Query, CVals}.
 
 glob_query(Bucket, Globs) ->
     Query = ["SELECT DISTINCT key ",
@@ -122,95 +158,37 @@ glob_query(Bucket, Globs) ->
     GlobWheres = [glob_where(Bucket, Query, Glob) || Glob <- Globs],
     {ok, GlobWheres}.
 
-tags_query(Collection, Namespace)
-  when is_binary(Collection),
-       is_binary(Namespace) ->
-    Q = "WITH RECURSIVE t AS ("
-        "   SELECT MIN(name) AS name FROM " ?DIM_TABLE
-        "     WHERE collection = $1"
-        "     AND namespace = $2"
-        "   UNION ALL"
-        "   SELECT (SELECT MIN(name) FROM " ?DIM_TABLE
-        "     WHERE name > t.name"
-        "     AND collection = $1"
-        "     AND namespace = $2)"
-        "   FROM t WHERE t.name IS NOT NULL"
-        "   )"
-        "SELECT name FROM t WHERE name IS NOT NULL",
-    Vs = [Collection, Namespace],
-    {ok, Q, Vs}.
-
-tags_query(Collection, Metric, Namespace)
-  when is_binary(Collection),
-       is_list(Metric),
-       is_binary(Namespace) ->
-    Q = "SELECT DISTINCT(name) FROM " ?DIM_TABLE " "
-        "LEFT JOIN " ?MET_TABLE " "
-        "ON " ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
-        "WHERE " ?MET_TABLE ".collection = $1 AND " ?MET_TABLE ".metric = $2 "
-        "AND " ?DIM_TABLE ".namespace = $3",
-    Vs = [Collection, Metric, Namespace],
-    {ok, Q, Vs}.
-
-
-add_tags(MID, Tags) ->
-    Fn = "add_tag",
-    build_add_tags(MID, 1, Fn, Tags, "SELECT", []).
-
-update_tags(MID, Tags) ->
-    Fn = "update_tag",
-    build_add_tags(MID, 1, Fn, Tags, "SELECT", []).
-
-values_query(Collection, Namespace, Tag)
-  when is_binary(Collection),
-       is_binary(Namespace),
-       is_binary(Tag) ->
-    Q = "WITH RECURSIVE t AS ("
-        "   SELECT MIN(value) AS value FROM " ?DIM_TABLE
-        "     WHERE collection = $1"
-        "     AND namespace = $2"
-        "     AND name = $3"
-        "   UNION ALL"
-        "   SELECT (SELECT MIN(value) FROM " ?DIM_TABLE
-        "     WHERE value > t.value"
-        "     AND collection = $1"
-        "     AND namespace = $2"
-        "     AND name = $3)"
-        "   FROM t WHERE t.value IS NOT NULL"
-        "   )"
-        "SELECT value FROM t WHERE value IS NOT NULL",
-    Vs = [Collection, Namespace, Tag],
-    {ok, Q, Vs}.
-
-values_query(Collection, Metric, Namespace, Tag)
-  when is_binary(Collection),
-       is_list(Metric),
-       is_binary(Namespace),
-       is_binary(Tag) ->
-    Q = "SELECT DISTINCT(value) FROM " ?DIM_TABLE " "
-        "LEFT JOIN " ?MET_TABLE " "
-        "ON " ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
-        "WHERE " ?MET_TABLE ".collection = $1 AND " ?MET_TABLE ".metric = $2 "
-        "AND " ?DIM_TABLE ".namespace = $3 AND name = $4",
-    Vs = [Collection, Metric, Namespace, Tag],
-    {ok, Q, Vs}.
-
-get_id_query(Collection, Metric, Bucket, Key)
-  when is_binary(Collection),
-       is_list(Metric),
-       is_binary(Bucket),
-       is_list(Key) ->
-    Q = "SELECT id FROM " ?MET_TABLE " WHERE "
-        "collection = $1 AND "
-        "metric = $2 AND "
-        "bucket = $3 AND "
-        "key = $4",
-    Vs = [Collection, Metric, Bucket, Key],
-    {ok, Q, Vs}.
-
 %%====================================================================
 %% Internal functions
 %%====================================================================
+
+keys_subquery(Collection, undefined) ->
+    Condition = "collection = $1",
+    Values = [Collection],
+    keys_subquery_with_condition(Condition, Values);
+keys_subquery(Collection, Metric) ->
+    Condition = "collection = $1 AND metrics = $2",
+    Values = [Collection, Metric],
+    keys_subquery_with_condition(Condition, Values).
+
+keys_subquery_with_condition(Condition, Values) ->
+    Query = "WITH RECURSIVE t AS ("
+            "  SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
+            "    WHERE " ++ Condition ++
+            "  UNION"
+            "  SELECT (SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
+            "    WHERE akeys(dimensions) > t.keys"
+            "    AND " ++ Condition ++ ")"
+            "  FROM t"
+            "  )"
+            "SELECT DISTINCT unnest(keys) FROM t",
+    {Query, Values}.
+
+lookup_condition({in, Collection, Metric}) ->
+    lookup_condition({in, Collection, Metric, []});
+lookup_condition({in, Collection, Metric, Where}) ->
+    %% TODO: Implement me
+    {}.
 
 build_lookup_query(Collection, Metric, Grouping)
   when is_list(Metric); Metric =:= undefined ->
@@ -304,20 +282,6 @@ build_tag_lookup({'!=', {tag, NS, K}, V}, NIn, Vals) ->
            " AND value = $", i2l(NIn+2), ")"],
     {NIn+3, [NS, K, V | Vals], Str}.
 
-build_add_tags(MID, P, Fn, [{NS, N, V}], Q, Vs) ->
-    {[Q, add_tag(Fn, P)], lists:reverse([V, N, NS, MID | Vs])};
-
-build_add_tags(MID, P, Fn, [{NS, N, V} | Tags], Q, Vs) ->
-    Q1 = [Q, add_tag(Fn, P), ","],
-    Vs1 = [V, N, NS, MID | Vs],
-    build_add_tags(MID, P+4, Fn, Tags, Q1, Vs1).
-
-add_tag(Fn, P)  ->
-    [" ", Fn, "($", i2l(P), ", "
-     "$", i2l(P + 1), ", "
-     "$", i2l(P + 2), ", "
-     "$", i2l(P + 3), ")"].
-
 grouping_names(0) ->
     [];
 grouping_names(N) ->
@@ -354,3 +318,18 @@ grouping_join([N | R]) ->
 
 i2l(I) ->
     integer_to_list(I).
+
+encode_tag(Ns, Name)
+  when is_binary(Ns),
+       is_binary(Name) ->
+    encode_ns(Ns, <<$:, Name/binary>>).
+
+encode_ns(<<>>, Acc) ->
+    Acc;
+encode_ns(<<$:, Rest/binary>>, Acc) ->
+    encode_ns(Rest, <<"\:", Acc/binary>>);
+encode_ns(<<$\\, Rest/binary>>, Acc) ->
+    encode_ns(Rest, <<"\\", Acc/binary>>);
+encode_ns(<<Char:1/binary, Rest/binary>>, Acc) ->
+    encode_ns(Rest, <<Char/binary, Acc/binary>>).
+

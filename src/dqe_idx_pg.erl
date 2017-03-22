@@ -10,8 +10,7 @@
          collections/0, metrics/1, metrics/3, namespaces/1, namespaces/2,
          tags/2, tags/3, values/3, values/4, expand/2,
          add/4, add/5, update/5,
-         delete/4, delete/5,
-         get_id/4, tdelta/1
+         delete/4, delete/5
         ]).
 
 %%====================================================================
@@ -113,19 +112,6 @@ expand(Bucket, Globs) when
     UniqueRows = lists:foldl(fun sets:union/2, H, T),
     Metrics = [M || {M} <- sets:to_list(UniqueRows)],
     {ok, {Bucket, Metrics}}.
-
--spec get_id(collection(),
-             metric(),
-             bucket(),
-             key()) -> {ok, row_id()} | not_found().
-get_id(Collection, Metric, Bucket, Key) ->
-    {ok, Q, Vs} = query_builder:get_id_query(Collection, Metric, Bucket, Key),
-    case execute({select, "get_id/4", Q, Vs}) of
-        [{ID}] ->
-            {ok, ID};
-        _ ->
-            {'error', not_found}
-    end.
 
 -spec add(collection(),
           metric(),
