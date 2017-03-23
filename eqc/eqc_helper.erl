@@ -91,7 +91,8 @@ where_clause(S) ->
     ?LAZY(?LET(N, choose(0, S - 1), where_clause_choice(N, S))).
 
 where_clause_choice(N, S) ->
-    oneof([{'and', where_clause(N), where_clause(S - N)}]).
+    oneof([{'and', where_clause(N), where_clause(S - N)},
+           {'or', where_clause(N), where_clause(S - N)}]).
 
 prefix() ->
     list(non_empty_binary()).

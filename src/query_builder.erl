@@ -11,6 +11,8 @@
 %% -export([i2l/1]).
 %-endif.
 
+-import(dqe_idx_pg_utils, [encode_tag_key/2]).
+
 -include("dqe_idx_pg.hrl").
 
 -define(NAMESPACE_PATTERN, "'^(([^:]|\\\\|\\:)+):'").
@@ -103,7 +105,7 @@ tags_query(Collection, Metric, Namespace)
     Query = ["SELECT DISTINCT substring(key from " ?NAME_PATTERN ")"
              "  FROM ", SubQ, " AS data(key)"
              "  WHERE key LIKE $" ++ i2l(I)],
-    Ns = encode_tag(Namespace, <<"%">>),
+    Ns = encode_tag_key(Namespace, <<"%">>),
     Values = SubV ++ [Ns],
     {ok, Query, Values}.
 
@@ -114,7 +116,7 @@ values_query(Collection, Namespace, Tag)
     Query = "SELECT DISTINCT dimensions -> $2 FROM " ?MET_TABLE
             "  WHERE collection = $1"
             "    AND dimensions ? $2",
-    Tag1 = encode_tag(Namespace, Tag),
+    Tag1 = encode_tag_key(Namespace, Tag),
     Values = [Collection, Tag1],
     {ok, Query, Values}.
 
@@ -127,19 +129,19 @@ values_query(Collection, Metric, Namespace, Tag)
             "  WHERE collection = $1"
             "    AND metric = $2"
             "    AND dimensions ? $3",
-    Tag1 = encode_tag(Namespace, Tag),
+    Tag1 = encode_tag_key(Namespace, Tag),
     Values = [Collection, Metric, Tag1],
     {ok, Query, Values}.
 
-lookup_query(Lookup, ReadKeys) ->
+lookup_query(Lookup, KeysToRead) ->
     {Condition, CVals} = lookup_condition(Lookup),
     I = length(CVals),
     Query = ["SELECT buket, key, avals(slice(dimensions, ", i2l(I + 1), "))"
              "  FROM metrics WHERE " | Condition],
-    Keys = [encode_tag(Ns, Name) || {Ns, Name} <- ReadKeys],
-    Values = CVals ++ Keys,
+    Keys = [encode_tag_key(Ns, Name) || {Ns, Name} <- KeysToRead],
+    Values = CVals ++ [Keys],
     {ok, Query, Values}.
-                                          
+
 lookup_tags_query(Lookup) ->
     {Condition, CVals} = lookup_condition(Lookup),
     Query = ["SELECT substring((kv).key from " ?NAMESPACE_PATTERN "),"
@@ -152,11 +154,15 @@ lookup_tags_query(Lookup) ->
     {ok, Query, CVals}.
 
 glob_query(Bucket, Globs) ->
-    Query = ["SELECT DISTINCT key ",
-             "FROM ", ?MET_TABLE, " ",
-             "WHERE bucket = $1 AND "],
-    GlobWheres = [glob_where(Bucket, Query, Glob) || Glob <- Globs],
-    {ok, GlobWheres}.
+    Criteria = criteria_from_globs(Globs),
+    {Condition, CVals} = criteria_condition(Criteria, 0),
+    I = length (CVals),
+    Query = ["SELECT DISTINCT key "
+             "  FROM " ?MET_TABLE " "
+             "  WHERE ", Condition,
+             "    AND bucket = $", i2l(I + 1)],
+    Values = CVals ++ [Bucket],
+    {ok, Query, Values}.
 
 %%====================================================================
 %% Internal functions
@@ -186,150 +192,83 @@ keys_subquery_with_condition(Condition, Values) ->
 
 lookup_condition({in, Collection, Metric}) ->
     lookup_condition({in, Collection, Metric, []});
-lookup_condition({in, Collection, Metric, Where}) ->
-    %% TODO: Implement me
-    {}.
+lookup_condition({in, _Collection, _Metric, Where}) ->
+    %% TODO: Add collection and metric handling
+    Where1 = lookup_criteria(Where),
+    criteria_condition(Where1, 0).
 
-build_lookup_query(Collection, Metric, Grouping)
-  when is_list(Metric); Metric =:= undefined ->
-    GroupingCount = length(Grouping),
-    GroupingNames = grouping_names(GroupingCount),
-    {N, {MetricWhere, MetricName}} = metric_where(2, Metric),
-    Query = ["SELECT DISTINCT bucket, key ",
-             grouping_select(GroupingNames),
-             "FROM " ?MET_TABLE " ",
-             grouping_join(GroupingNames),
-             "WHERE " ?MET_TABLE ".collection = $1 ",
-             MetricWhere,
-             grouping_where(GroupingNames, N)],
-    FlatGrouping = lists:flatten([[Namespace, Name] ||
-                                     {Namespace, Name} <- Grouping]),
-    Values = [Collection | MetricName ++ FlatGrouping],
-    {ok, Query, Values}.
+%% Postgres hstore gist index is really quick to resolve intersection (AND)
+%% between conditions based on one of operator: '@>' (containing exact values),
+%% '?&' (containing all keys) and '?|' (containing any keys).
+%%
+%% To make queries efficient we will try to re-arange conditions to make a 
+%% criteria based on those operators
+%%optimize_conditions({'and', L, R}) ->
+%%    [];
+%%optimize_conditions({'or', L, R}) ->
+%%    [];
+lookup_criteria(Where) ->
+    %% TODO implement me
+    Where.
 
-build_lookup_query(Bucket, Metric, Where, Grouping)
-  when is_list(Metric); Metric =:= undefined ->
-    GroupingCount = length(Grouping),
-    GroupingNames = grouping_names(GroupingCount),
-    {N, {MetricWhere, MetricName}} = metric_where(2, Metric),
-    Query = ["SELECT DISTINCT bucket, key",
-             grouping_select(GroupingNames),
-             "FROM ", ?MET_TABLE, " ",
-             grouping_join(GroupingNames),
-             "WHERE " ?MET_TABLE ".collection = $1 ",
-             MetricWhere,
-             grouping_where(GroupingNames, N),
-             "AND "],
-    {_N, TagPairs, TagPredicate} =
-        %% We need to multipy count by two since we got names
-        %% and namespaces
-        build_tag_lookup(Where, N + GroupingCount * 2),
-    FlatGrouping = lists:flatten([[Namespace, Name] ||
-                                     {Namespace, Name} <- Grouping]),
-    Values = [Bucket | MetricName ++ FlatGrouping ++ TagPairs],
-    {ok, Query ++ TagPredicate, Values}.
+%% special, optimized operators
+criteria_condition({Op, Parts}, I) 
+  when Op =:= '@>'; Op =:= '?&'; Op =:= '?|' ->
+    OpStr = case Op of
+                '@>' -> "@>";
+                '?&' -> "?&";
+                '?|' -> "?|"
+            end,
+    Cond = ["dimensions ", OpStr, " hstore($", i2l(I+1), ", $", i2l(I+2), ")"],
+    {Tags, Vals} = lists:unzip(Parts),
+    Keys = lists:map(fun encode_tag/1, Tags),
+    {Cond, [Keys, Vals]};
+%% usuall joining operators
+%% TODO: add logic to figgure out when to put nested stuff in brackets
+criteria_condition({Op, L, R}, I) 
+  when Op =:= 'and'; Op =:= 'or' ->
+    OpStr = case Op of
+                'and' -> "AND";
+                'or' -> "OR"
+            end,
+    {LCond, LVals} = criteria_condition(L, I),
+    {RCond, RVals} = criteria_condition(R, I + length(LVals)),
+    {[LCond, " ", OpStr, " ", RCond], LVals ++ RVals};
+%% fallback for generic operators that could have not been optimized
+criteria_condition({'=', {tag, NS, k}, V}, I) ->
+    criteria_condition({'@>', [{{tag, NS, k}, V}]}, I);
+criteria_condition({'!=', {tag, NS, k}, V}, I) ->
+    {Cond, Values} = criteria_condition({'=', {tag, NS, k}, V}, I),
+    {["NOT " | Cond], Values}.
 
-glob_where(Bucket, Query, Glob) ->
-    Where = and_tags(glob_to_tags(Glob)),
-    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 2),
-    Values = [Bucket | TagPairs],
-    {Query ++ TagPredicate, Values}.
+criteria_from_globs(Globs) ->
+    criteria_from_globs(Globs, []).
 
-and_tags([E]) ->
-    E;
-and_tags([E| R]) ->
-    {'and', E, and_tags(R)}.
+criteria_from_globs([], Acc) ->
+    Acc;
+criteria_from_globs([Pattern | Rest], []) ->
+    Crit = criteria_from_glob_pattern(Pattern),
+    criteria_from_globs(Rest, Crit);
+criteria_from_globs([Pattern | Rest], Acc) ->
+    Crit = criteria_from_glob_pattern(Pattern),
+    criteria_from_globs(Rest, {'or', Crit, Acc}).
 
-glob_to_tags(Glob) ->
-    glob_to_tags(Glob, 1,
-                 [{'=', {tag, <<"ddb">>, <<"key_length">>},
-                   integer_to_binary(length(Glob))}]).
+criteria_from_glob_pattern(Pattern) ->
+    criteria_from_glob_pattern(Pattern, 0, []).
 
-glob_to_tags([], _,  Tags) ->
-    Tags;
-glob_to_tags(['*' | R], N, Tags) ->
-    glob_to_tags(R, N + 1, Tags);
-
-glob_to_tags([E | R] , N, Tags) ->
-    PosBin = integer_to_binary(N),
-    T = {'=', {tag, <<"ddb">>, <<"part_", PosBin/binary>>}, E},
-    glob_to_tags(R, N + 1, [T | Tags]).
-
-build_tag_lookup(Where) ->
-    build_tag_lookup(Where, 3).
-
-build_tag_lookup(Where, N) ->
-    build_tag_lookup(Where, N, []).
-
-build_tag_lookup({'and', L, R}, N, TagPairs) ->
-    {N1, TagPairs1, Str1} = build_tag_lookup(L, N, TagPairs),
-    {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
-    {N2, TagPairs2, ["(", Str1, " AND ", Str2, ")"]};
-build_tag_lookup({'or', L, R}, N, TagPairs) ->
-    {N1, TagPairs1, Str1} = build_tag_lookup(L, N, TagPairs),
-    {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
-    {N2, TagPairs2, ["(", Str1, " OR ", Str2, ")"]};
-build_tag_lookup({'=', {tag, NS, K}, V}, NIn, Vals) ->
-    Str = ["id IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE ",
-           " namespace = $", i2l(NIn),
-           " AND name = $", i2l(NIn+1),
-           " AND value = $", i2l(NIn+2), ")"],
-    {NIn+3, [NS, K, V | Vals], Str};
-build_tag_lookup({'!=', {tag, NS, K}, V}, NIn, Vals) ->
-    Str = ["id NOT IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE ",
-           " namespace = $", i2l(NIn),
-           " AND name = $", i2l(NIn+1),
-           " AND value = $", i2l(NIn+2), ")"],
-    {NIn+3, [NS, K, V | Vals], Str}.
-
-grouping_names(0) ->
-    [];
-grouping_names(N) ->
-    ["g" ++ i2l(I) || I <- lists:seq(1, N)].
-
-grouping_select([]) ->
-    " ";
-grouping_select([Name | R]) ->
-    [", ARRAY[", Name, ".value" | grouping_select_(R)].
-
-grouping_select_([]) ->
-    "] ";
-grouping_select_([Name | R]) ->
-    [", ", Name, ".value" | grouping_select_(R)].
-
-metric_where(N, undefined) ->
-    {N, {"", []}};
-metric_where(N, Metric) ->
-    MetricPredicate = [" AND metric = $", i2l(N), " "],
-    {N + 1, {MetricPredicate, [Metric]}}.
-
-grouping_where([], _) ->
-    "";
-grouping_where([Name | R], Pos) ->
-    ["AND ", Name, ".namespace = $",  i2l(Pos), " "
-     "AND ", Name, ".name = $",  i2l(Pos + 1), " " |
-     grouping_where(R, Pos + 2)].
-
-grouping_join([]) ->
-    " ";
-grouping_join([N | R]) ->
-    ["INNER JOIN ", ?DIM_TABLE, " AS ", N,
-     " ON ", N, ".metric_id = ", ?MET_TABLE ".id " | grouping_join(R)].
-
+criteria_from_glob_pattern([], Count, Acc) ->
+    LenCrit = {{tag, 'ddb', 'key_length'}, i2l(Count)},
+    {'@>', [LenCrit | Acc]};
+criteria_from_glob_pattern(['*' | Rest], Count, Acc) ->
+    criteria_from_glob_pattern(Rest, Count + 1, Acc);
+criteria_from_glob_pattern([Part | Rest], Count, Acc) ->
+    TName = ["part_" | i2l(Count)],
+    Acc1 = [{{tag, 'ddb', TName}, Part} | Acc],
+    criteria_from_glob_pattern(Rest, Count + 1, Acc1).
+    
 i2l(I) ->
     integer_to_list(I).
 
-encode_tag(Ns, Name)
-  when is_binary(Ns),
-       is_binary(Name) ->
-    encode_ns(Ns, <<$:, Name/binary>>).
-
-encode_ns(<<>>, Acc) ->
-    Acc;
-encode_ns(<<$:, Rest/binary>>, Acc) ->
-    encode_ns(Rest, <<"\:", Acc/binary>>);
-encode_ns(<<$\\, Rest/binary>>, Acc) ->
-    encode_ns(Rest, <<"\\", Acc/binary>>);
-encode_ns(<<Char:1/binary, Rest/binary>>, Acc) ->
-    encode_ns(Rest, <<Char/binary, Acc/binary>>).
+encode_tag({tag, Ns, Name}) ->
+    encode_tag_key(Ns, Name).
 
