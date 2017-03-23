@@ -198,8 +198,8 @@ lookup_condition({in, Collection, Metric}) ->
     {"collection = $1 AND metric = $2",
      [Collection, Metric]};
 lookup_condition({in, Collection, Metric, Where}) ->
-    Where1 = lookup_criteria(Where),
-    {Condition, CValues} = criteria_condition(Where1, 2),
+    Criteria = lookup_criteria(Where),
+    {Condition, CValues} = criteria_condition(Criteria, 2),
     Query = ["collection = $1 AND metric = $2 AND " | Condition],
     Values = [Collection, Metric | CValues],
     {Query, Values}.
@@ -208,15 +208,30 @@ lookup_condition({in, Collection, Metric, Where}) ->
 %% between conditions based on one of operator: '@>' (containing exact values),
 %% '?&' (containing all keys) and '?|' (containing any keys).
 %%
-%% To make queries efficient we will try to re-arange conditions to make a 
-%% criteria based on those operators
-%%optimize_conditions({'and', L, R}) ->
-%%    [];
-%%optimize_conditions({'or', L, R}) ->
-%%    [];
-lookup_criteria(Where) ->
-    %% TODO implement me
-    Where.
+%% Following function will convert dqe where clause to criteria operating on
+%% those operators, doing some optimizations where possible.
+%%
+%% First lets start from converting simple operators to something we can perform
+%% on hstores
+lookup_criteria({'=', Tag, Value}) ->
+    {'@>', [{Tag, Value}]};
+lookup_criteria({'!=', Tag, Value}) ->
+    {'not', {'@>', [{Tag, Value}]}};
+%% containment checks connected by 'and' can be joined to one
+lookup_criteria({'and', L, R}) ->
+    case {lookup_criteria(L), lookup_criteria(R)} of
+        {{'@>', LKVs}, {'@>', RKVs}} ->
+            {'@>', LKVs ++ RKVs};
+        {L1, L2} ->
+            {'and', L1, L2}
+    end;
+%% With 'or' operators we can do much, maybe beside trying to optimize children
+lookup_criteria({'or', L, R}) ->
+    L1 = lookup_criteria(L),
+    R1 = lookup_criteria(R),
+    {'or', L1, R1}.
+%% We can do further improvements using '?&' and '?!' operators once we add
+%% support for tag presence only conditions.
 
 %% special, optimized operators
 criteria_condition({'@>', Parts}, I)  ->
@@ -233,8 +248,7 @@ criteria_condition({Op, Parts}, I)
     {Tags, _} = lists:unzip(Parts),
     Keys = lists:map(fun encode_tag/1, Tags),
     {Cond, [Keys]};
-%% usuall joining operators
-%% TODO: add logic to figgure out when to put nested stuff in brackets
+%% joining operators
 criteria_condition({Op, L, R}, I) 
   when Op =:= 'and'; Op =:= 'or' ->
     OpStr = case Op of
@@ -243,12 +257,16 @@ criteria_condition({Op, L, R}, I)
             end,
     {LCond, LVals} = criteria_condition(L, I),
     {RCond, RVals} = criteria_condition(R, I + length(LVals)),
-    {[LCond, " ", OpStr, " ", RCond], LVals ++ RVals};
-%% fallback for generic operators that could have not been optimized
-criteria_condition({'=', {tag, NS, N}, V}, I) ->
-    criteria_condition({'@>', [{{tag, NS, N}, V}]}, I);
-criteria_condition({'!=', {tag, NS, N}, V}, I) ->
-    {Cond, Values} = criteria_condition({'=', {tag, NS, N}, V}, I),
+    %% if right part has further nested joining operators, we need brackets
+    RCond1 = case R of
+                 {Op, _, _} when Op =:= 'and'; Op =:= 'or' ->
+                     [$(, RCond, $)];
+                 _ ->
+                     RCond
+             end,
+    {[LCond, " ", OpStr, " ", RCond1], LVals ++ RVals};
+criteria_condition({'not', Nested}, I) ->
+    {Cond, Values} = criteria_condition(Nested, I),
     {["NOT " | Cond], Values}.
 
 criteria_from_globs(Globs) ->
