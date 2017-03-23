@@ -15,7 +15,7 @@
 
 -include("dqe_idx_pg.hrl").
 
--define(NAMESPACE_PATTERN, "'^(([^:]|\\\\|\\:)+):'").
+-define(NAMESPACE_PATTERN, "'^(([^:]|\\\\|\\:)+?):'").
 -define(NAME_PATTERN, "'^(?:[^:]|\\\\|\\:)+:(.*)$'").
 
 %% TODO: Make sure namespace is encoded and decoded across the board
@@ -88,7 +88,7 @@ namespaces_query(Collection, Metric)
     %% TODO: I need to decode namespace results somehow
     {SubQ, SubV} = keys_subquery(Collection, Metric),
     Query = "SELECT DISTINCT substring(key from " ?NAMESPACE_PATTERN ")"
-            "  FROM " ++ SubQ ++ " AS data(key)",
+            "  FROM (" ++ SubQ ++ ") AS data(key)",
     {ok, Query, SubV}.
 
 tags_query(Collection, Namespace)
@@ -103,8 +103,8 @@ tags_query(Collection, Metric, Namespace)
     {SubQ, SubV} = keys_subquery(Collection, Metric),
     I = length(SubV),
     Query = ["SELECT DISTINCT substring(key from " ?NAME_PATTERN ")"
-             "  FROM ", SubQ, " AS data(key)"
-             "  WHERE key LIKE $" ++ i2l(I)],
+             "  FROM (", SubQ, ") AS data(key)"
+             "  WHERE key LIKE $" ++ i2l(I + 1)],
     Ns = encode_tag_key(Namespace, <<"%">>),
     Values = SubV ++ [Ns],
     {ok, Query, Values}.
@@ -133,10 +133,14 @@ values_query(Collection, Metric, Namespace, Tag)
     Values = [Collection, Metric, Tag1],
     {ok, Query, Values}.
 
+lookup_query(Lookup, []) ->
+    {Condition, CVals} = lookup_condition(Lookup),
+    Query = ["SELECT bucket, key FROM metrics WHERE " | Condition],
+    {ok, Query, CVals};
 lookup_query(Lookup, KeysToRead) ->
     {Condition, CVals} = lookup_condition(Lookup),
     I = length(CVals),
-    Query = ["SELECT buket, key, avals(slice(dimensions, ", i2l(I + 1), "))"
+    Query = ["SELECT bucket, key, avals(slice(dimensions, $", i2l(I + 1), "))"
              "  FROM metrics WHERE " | Condition],
     Keys = [encode_tag_key(Ns, Name) || {Ns, Name} <- KeysToRead],
     Values = CVals ++ [Keys],
@@ -173,7 +177,7 @@ keys_subquery(Collection, undefined) ->
     Values = [Collection],
     keys_subquery_with_condition(Condition, Values);
 keys_subquery(Collection, Metric) ->
-    Condition = "collection = $1 AND metrics = $2",
+    Condition = "collection = $1 AND metric = $2",
     Values = [Collection, Metric],
     keys_subquery_with_condition(Condition, Values).
 
@@ -191,11 +195,14 @@ keys_subquery_with_condition(Condition, Values) ->
     {Query, Values}.
 
 lookup_condition({in, Collection, Metric}) ->
-    lookup_condition({in, Collection, Metric, []});
-lookup_condition({in, _Collection, _Metric, Where}) ->
-    %% TODO: Add collection and metric handling
+    {"collection = $1 AND metric = $2",
+     [Collection, Metric]};
+lookup_condition({in, Collection, Metric, Where}) ->
     Where1 = lookup_criteria(Where),
-    criteria_condition(Where1, 0).
+    {Condition, CValues} = criteria_condition(Where1, 2),
+    Query = ["collection = $1 AND metric = $2 AND " | Condition],
+    Values = [Collection, Metric | CValues],
+    {Query, Values}.
 
 %% Postgres hstore gist index is really quick to resolve intersection (AND)
 %% between conditions based on one of operator: '@>' (containing exact values),
@@ -212,17 +219,20 @@ lookup_criteria(Where) ->
     Where.
 
 %% special, optimized operators
+criteria_condition({'@>', Parts}, I)  ->
+    Cond = ["dimensions @> $", i2l(I+1)],
+    HStore = {[{encode_tag(T), V} || {T, V} <- Parts]},
+    {Cond, [HStore]};
 criteria_condition({Op, Parts}, I) 
-  when Op =:= '@>'; Op =:= '?&'; Op =:= '?|' ->
+  when Op =:= '?&'; Op =:= '?|' ->
     OpStr = case Op of
-                '@>' -> "@>";
                 '?&' -> "?&";
                 '?|' -> "?|"
             end,
-    Cond = ["dimensions ", OpStr, " hstore($", i2l(I+1), ", $", i2l(I+2), ")"],
-    {Tags, Vals} = lists:unzip(Parts),
+    Cond = ["dimensions ", OpStr, " $", i2l(I+1)],
+    {Tags, _} = lists:unzip(Parts),
     Keys = lists:map(fun encode_tag/1, Tags),
-    {Cond, [Keys, Vals]};
+    {Cond, [Keys]};
 %% usuall joining operators
 %% TODO: add logic to figgure out when to put nested stuff in brackets
 criteria_condition({Op, L, R}, I) 
@@ -235,10 +245,10 @@ criteria_condition({Op, L, R}, I)
     {RCond, RVals} = criteria_condition(R, I + length(LVals)),
     {[LCond, " ", OpStr, " ", RCond], LVals ++ RVals};
 %% fallback for generic operators that could have not been optimized
-criteria_condition({'=', {tag, NS, k}, V}, I) ->
-    criteria_condition({'@>', [{{tag, NS, k}, V}]}, I);
-criteria_condition({'!=', {tag, NS, k}, V}, I) ->
-    {Cond, Values} = criteria_condition({'=', {tag, NS, k}, V}, I),
+criteria_condition({'=', {tag, NS, N}, V}, I) ->
+    criteria_condition({'@>', [{{tag, NS, N}, V}]}, I);
+criteria_condition({'!=', {tag, NS, N}, V}, I) ->
+    {Cond, Values} = criteria_condition({'=', {tag, NS, N}, V}, I),
     {["NOT " | Cond], Values}.
 
 criteria_from_globs(Globs) ->
@@ -257,13 +267,14 @@ criteria_from_glob_pattern(Pattern) ->
     criteria_from_glob_pattern(Pattern, 0, []).
 
 criteria_from_glob_pattern([], Count, Acc) ->
-    LenCrit = {{tag, 'ddb', 'key_length'}, i2l(Count)},
+    LenCrit = {{tag, <<"ddb">>, <<"key_length">>}, integer_to_binary(Count)},
     {'@>', [LenCrit | Acc]};
 criteria_from_glob_pattern(['*' | Rest], Count, Acc) ->
     criteria_from_glob_pattern(Rest, Count + 1, Acc);
 criteria_from_glob_pattern([Part | Rest], Count, Acc) ->
-    TName = ["part_" | i2l(Count)],
-    Acc1 = [{{tag, 'ddb', TName}, Part} | Acc],
+    CountBin = integer_to_binary(Count + 1),
+    TName = <<"part_",  CountBin/binary>>,
+    Acc1 = [{{tag, <<"ddb">>, TName}, Part} | Acc],
     criteria_from_glob_pattern(Rest, Count + 1, Acc1).
     
 i2l(I) ->
