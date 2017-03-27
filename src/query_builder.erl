@@ -7,18 +7,12 @@
          lookup_query/2, lookup_tags_query/1,
          glob_query/2]).
 
-%-ifdef(TEST).
-%% -export([i2l/1]).
-%-endif.
-
 -import(dqe_idx_pg_utils, [encode_tag_key/2]).
 
 -include("dqe_idx_pg.hrl").
 
--define(NAMESPACE_PATTERN, "'^(([^:]|\\\\|\\:)+?):'").
--define(NAME_PATTERN, "'^(?:[^:]|\\\\|\\:)+:(.*)$'").
-
-%% TODO: Make sure namespace is encoded and decoded across the board
+-define(NAMESPACE_PATTERN, "'^(([^:]|\\\\\\\\|\\\\:)+):'").
+-define(NAME_PATTERN, "'^(?:[^:]|\\\\\\\\|\\\\:)+:(.*)$'").
 
 %%====================================================================
 %% API
@@ -85,7 +79,6 @@ namespaces_query(Collection)
 namespaces_query(Collection, Metric)
   when is_binary(Collection),
        is_list(Metric); Metric =:= undefined ->
-    %% TODO: I need to decode namespace results somehow
     {SubQ, SubV} = keys_subquery(Collection, Metric),
     Query = "SELECT DISTINCT substring(key from " ?NAMESPACE_PATTERN ")"
             "  FROM (" ++ SubQ ++ ") AS data(key)",
@@ -104,9 +97,10 @@ tags_query(Collection, Metric, Namespace)
     I = length(SubV),
     Query = ["SELECT DISTINCT substring(key from " ?NAME_PATTERN ")"
              "  FROM (", SubQ, ") AS data(key)"
-             "  WHERE key LIKE $" ++ i2l(I + 1)],
-    Ns = encode_tag_key(Namespace, <<"%">>),
-    Values = SubV ++ [Ns],
+             "  WHERE key LIKE $" ++ i2l(I + 1) ++ " ESCAPE '~'"],
+    Ns1 = escape_sql_pattern(Namespace, <<>>),
+    Ns2 = encode_tag_key(Ns1, <<"%">>),
+    Values = SubV ++ [Ns2],
     {ok, Query, Values}.
 
 values_query(Collection, Namespace, Tag)
@@ -148,9 +142,7 @@ lookup_query(Lookup, KeysToRead) ->
 
 lookup_tags_query(Lookup) ->
     {Condition, CVals} = lookup_condition(Lookup),
-    Query = ["SELECT substring((kv).key from " ?NAMESPACE_PATTERN "),"
-             "       substring((kv).key from " ?NAME_PATTERN "),"
-             "       (kv).value"
+    Query = ["SELECT (kv).key, (kv).value"
              "  FROM ("
              "    SELECT DISTINCT each(dimensions)"
              "      FROM metrics WHERE ", Condition,
@@ -300,4 +292,12 @@ i2l(I) ->
 
 encode_tag({tag, Ns, Name}) ->
     encode_tag_key(Ns, Name).
+
+escape_sql_pattern(<<>>, Acc) ->
+    Acc;
+escape_sql_pattern(<<C:8/integer, Rest/binary>>, Acc) 
+  when C =:= $%; C =:= $~; C =:= $_->
+    escape_sql_pattern(Rest, <<Acc/binary, $~, C:8/integer>>);
+escape_sql_pattern(<<C:1/binary, Rest/binary>>, Acc) ->
+    escape_sql_pattern(Rest, <<Acc/binary, C/binary>>).
 

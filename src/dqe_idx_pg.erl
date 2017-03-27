@@ -13,6 +13,8 @@
          delete/4, delete/5
         ]).
 
+-import(dqe_idx_pg_utils, [decode_ns/1, hstore_to_tags/1, kvpair_to_tag/1]).
+
 %%====================================================================
 %% API functions
 %%====================================================================
@@ -44,7 +46,8 @@ lookup(Query, Groupings) ->
 lookup_tags(Query) ->
     {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
     Rows = execute({select, "lookup_tags/1", Q, Vs}),
-    {ok, Rows}.
+    R = [kvpair_to_tag(KV) || KV <- Rows],
+    {ok, R}.
 
 collections() ->
     {ok, Q, Vs} = query_builder:collections_query(),
@@ -66,12 +69,12 @@ metrics(Collection, Prefix, Depth) ->
 namespaces(Collection) ->
     {ok, Q, Vs} = query_builder:namespaces_query(Collection),
     Rows = execute({select, "namespaces/1", Q, Vs}),
-    {ok, strip_tpl(Rows)}.
+    {ok, decode_ns_rows(Rows)}.
 
 namespaces(Collection, Metric) ->
     {ok, Q, Vs} = query_builder:namespaces_query(Collection, Metric),
     Rows = execute({select, "namespaces/2", Q, Vs}),
-    {ok, strip_tpl(Rows)}.
+    {ok, decode_ns_rows(Rows)}.
 
 tags(Collection, Namespace) ->
     {ok, Q, Vs} = query_builder:tags_query(Collection, Namespace),
@@ -124,8 +127,7 @@ add(Collection, Metric, Bucket, Key, Tags) ->
         {ok, 0, []} ->
             ok;
         {ok, _Count, [{Dims}]} ->
-            %% TODO: perhaps decode dimensions to tags
-            {ok, Dims};
+            {ok, hstore_to_tags(Dims)};
         EAdd ->
             EAdd
     end.
@@ -142,8 +144,7 @@ update(Collection, Metric, Bucket, Key, NVs) ->
         {ok, 0, []} ->
             ok;
         {ok, _Count, [{Dims}]} ->
-            %% TODO: perhaps decode dimensions to tags
-            {ok, Dims};
+            {ok, hstore_to_tags(Dims)};
         EAdd ->
             EAdd
     end.
@@ -171,7 +172,7 @@ delete(Collection, Metric, Bucket, Key, Tags) ->
     %% TODO Just ignore errors when it is not existent
     {ok, Q, Vs} = command_builder:delete_tags(
                     Collection, Metric, Bucket, Key, Tags),
-    case execute({command, "add_tags/3", Q, Vs}) of
+    case execute({command, "delete/5", Q, Vs}) of
         {ok, _Count, _Rows} ->
             ok;
         E ->
@@ -188,8 +189,12 @@ tdelta(T0) ->
 strip_tpl(L) ->
     [E || {E} <- L].
 
+decode_ns_rows(Rows) ->
+    [decode_ns(E) || {E} <- Rows].
+
 execute({select, Name, Q, Vs}) ->
     T0 = erlang:system_time(),
+    io:format("Query: ~s~n <- ~p~n", [Q, Vs]),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:~p] Query took ~pms: ~s <- ~p",
                 [Name, tdelta(T0), Q, Vs]),
