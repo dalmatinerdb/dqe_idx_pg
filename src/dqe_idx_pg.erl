@@ -169,7 +169,6 @@ delete(Collection, Metric, Bucket, Key) ->
              key(),
              [{tag_ns(), tag_name()}]) -> ok | sql_error().
 delete(Collection, Metric, Bucket, Key, Tags) ->
-    %% TODO Just ignore errors when it is not existent
     {ok, Q, Vs} = command_builder:delete_tags(
                     Collection, Metric, Bucket, Key, Tags),
     case execute({command, "delete/5", Q, Vs}) of

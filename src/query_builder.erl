@@ -30,7 +30,6 @@ collections_query() ->
     Values = [],
     {ok, Query, Values}.
 
-%% TODO: check if using just UNION instead of UNION ALL would not perform better
 metrics_query(Collection)
   when is_binary(Collection) ->
     Query = "WITH RECURSIVE t AS ("
@@ -46,10 +45,6 @@ metrics_query(Collection)
     Values = [Collection],
     {ok, Query, Values}.
 
-%% TODO: for very short prefixes it may be easier to go old way with 
-%%   SELECT DISTINCT metric[1] FROM ...
-%% ,especially with partial indexes by collection.
-%% Benchmark IT!
 metrics_query(Collection, Prefix, Depth)
   when is_binary(Collection),
        is_list(Prefix),
