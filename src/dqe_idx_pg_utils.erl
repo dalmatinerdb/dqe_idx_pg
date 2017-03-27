@@ -6,12 +6,14 @@
          hstore_to_tags/1,
          kvpair_to_tag/1]).
 
+-type non_empty_binary() :: <<_:8, _:_*8>>.
+
 %%====================================================================
 %% API
 %%====================================================================
 
 -spec encode_tag_key(binary(), binary()) ->
-                            binary().
+                            non_empty_binary().
 encode_tag_key(Ns, Name)
   when is_binary(Ns),
        is_binary(Name) ->
@@ -30,7 +32,7 @@ tags_to_hstore(Tags) ->
     tags_to_hstore_iter(Tags, []).
 
 -spec hstore_to_tags({[{binary(), binary()}]}) ->
-                            [{binary() | binary() | binary()}].
+                            [{binary(), binary(), binary()}].
 hstore_to_tags({KVs}) when is_list(KVs) ->
     [kvpair_to_tag(KV) || KV <- KVs].
 

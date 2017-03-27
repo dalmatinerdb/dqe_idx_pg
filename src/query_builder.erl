@@ -225,7 +225,7 @@ criteria_condition({'@>', Parts}, I)  ->
     Cond = ["dimensions @> $", i2l(I+1)],
     HStore = {[{encode_tag(T), V} || {T, V} <- Parts]},
     {Cond, [HStore]};
-criteria_condition({Op, Parts}, I) 
+criteria_condition({Op, Parts}, I)
   when Op =:= '?&'; Op =:= '?|' ->
     OpStr = case Op of
                 '?&' -> "?&";
@@ -236,7 +236,7 @@ criteria_condition({Op, Parts}, I)
     Keys = lists:map(fun encode_tag/1, Tags),
     {Cond, [Keys]};
 %% joining operators
-criteria_condition({Op, L, R}, I) 
+criteria_condition({Op, L, R}, I)
   when Op =:= 'and'; Op =:= 'or' ->
     OpStr = case Op of
                 'and' -> "AND";
@@ -281,7 +281,7 @@ criteria_from_glob_pattern([Part | Rest], Count, Acc) ->
     TName = <<"part_",  CountBin/binary>>,
     Acc1 = [{{tag, <<"ddb">>, TName}, Part} | Acc],
     criteria_from_glob_pattern(Rest, Count + 1, Acc1).
-    
+
 i2l(I) ->
     integer_to_list(I).
 
@@ -290,7 +290,7 @@ encode_tag({tag, Ns, Name}) ->
 
 escape_sql_pattern(<<>>, Acc) ->
     Acc;
-escape_sql_pattern(<<C:8/integer, Rest/binary>>, Acc) 
+escape_sql_pattern(<<C:8/integer, Rest/binary>>, Acc)
   when C =:= $%; C =:= $~; C =:= $_->
     escape_sql_pattern(Rest, <<Acc/binary, $~, C:8/integer>>);
 escape_sql_pattern(<<C:1/binary, Rest/binary>>, Acc) ->

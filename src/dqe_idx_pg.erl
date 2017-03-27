@@ -193,7 +193,6 @@ decode_ns_rows(Rows) ->
 
 execute({select, Name, Q, Vs}) ->
     T0 = erlang:system_time(),
-    io:format("Query: ~s~n <- ~p~n", [Q, Vs]),
     {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
     lager:debug("[dqe_idx:pg:~p] Query took ~pms: ~s <- ~p",
                 [Name, tdelta(T0), Q, Vs]),

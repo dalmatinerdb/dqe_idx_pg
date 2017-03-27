@@ -30,7 +30,7 @@ add_metric(Collection, Metric, Bucket, Key, Tags)
     Values = [Collection, Metric, Bucket, Key, HStore],
     {ok, Query, Values}.
 
--spec delete_metric(binary(), [binary()], binary(), [binary()]) -> 
+-spec delete_metric(binary(), [binary()], binary(), [binary()]) ->
                         {ok, iolist(), [term()]}.
 delete_metric(Collection, Metric, Bucket, Key)
   when is_binary(Collection),
@@ -45,7 +45,7 @@ delete_metric(Collection, Metric, Bucket, Key)
     Values = [Collection, Metric, Bucket, Key],
     {ok, Query, Values}.
 
--spec update_tags(binary(), [binary()], binary(), [binary()], 
+-spec update_tags(binary(), [binary()], binary(), [binary()],
                   [{binary(), binary(), binary()}]) ->
                          {ok, iolist(), [term()]}.
 update_tags(Collection, Metric, Bucket, Key, Tags) ->
@@ -59,7 +59,7 @@ update_tags(Collection, Metric, Bucket, Key, Tags) ->
     Values = [Collection, Metric, Bucket, Key, HStore],
     {ok, Query, Values}.
 
--spec delete_tags(binary(), [binary()], binary(), [binary()], 
+-spec delete_tags(binary(), [binary()], binary(), [binary()],
                   [{binary(), binary(), binary()}]) ->
                          {ok, iolist(), [term()]}.
 delete_tags(Collection, Metric, Bucket, Key, Tags) ->
