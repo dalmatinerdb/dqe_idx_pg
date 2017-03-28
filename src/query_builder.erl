@@ -2,12 +2,17 @@
 
 -export([collections_query/0, metrics_query/1, metrics_query/3,
          namespaces_query/1, namespaces_query/2,
-         lookup_query/2, lookup_tags_query/1,
-         tags_query/2, tags_query/3, add_tags/2, update_tags/2,
+         tags_query/2, tags_query/3,
          values_query/3, values_query/4,
-         glob_query/2, get_id_query/4, i2l/1]).
+         lookup_query/2, lookup_tags_query/1,
+         glob_query/2]).
+
+-import(dqe_idx_pg_utils, [encode_tag_key/2]).
 
 -include("dqe_idx_pg.hrl").
+
+-define(NAMESPACE_PATTERN, "'^(([^:]|\\\\\\\\|\\\\:)+):'").
+-define(NAME_PATTERN, "'^(?:[^:]|\\\\\\\\|\\\\:)+:(.*)$'").
 
 %%====================================================================
 %% API
@@ -21,24 +26,22 @@ collections_query() ->
             "     WHERE collection > t.collection)"
             "   FROM t WHERE t.collection IS NOT NULL"
             "   )"
-            "SELECT collection FROM t WHERE collection IS NOT NULL",
+            "SELECT collection FROM t",
     Values = [],
     {ok, Query, Values}.
 
 metrics_query(Collection)
   when is_binary(Collection) ->
     Query = "WITH RECURSIVE t AS ("
-            "   SELECT MIN(metric) AS metric FROM "
-            ?MET_TABLE
+            "   SELECT MIN(metric) AS metric FROM " ?MET_TABLE
             "     WHERE collection = $1"
             "   UNION ALL"
-            "   SELECT (SELECT MIN(metric) FROM "
-            ?MET_TABLE
+            "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
             "     WHERE metric > t.metric"
             "     AND collection = $1)"
             "   FROM t WHERE t.metric IS NOT NULL"
             "   )"
-            "SELECT metric FROM t WHERE metric IS NOT NULL",
+            "SELECT metric FROM t",
     Values = [Collection],
     {ok, Query, Values}.
 
@@ -46,314 +49,250 @@ metrics_query(Collection, Prefix, Depth)
   when is_binary(Collection),
        is_list(Prefix),
        Depth > 0 ->
-    {_N, MetricVals, MetricPredicate} = metric_variant_where(Prefix, 6),
-    Query = ["SELECT DISTINCT metric[$1:$2]",
-             "FROM ", ?MET_TABLE, " ",
-             "WHERE metric[$3:$4] IS NOT NULL AND collection = $5 "],
-    From = 1 + length(Prefix),
+    Query = "WITH RECURSIVE t AS("
+            "   SELECT MIN(metric) AS metric FROM " ?MET_TABLE
+            "     WHERE collection = $1"
+            "       AND metric > $2"
+            "   UNION ALL"
+            "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
+            "     WHERE metric > t.metric"
+            "       AND metric[1:$5] <> t.metric[1:$4]"
+            "       AND collection = $1)"
+            "   FROM t WHERE t.metric[1:$3] = $2"
+            "   )"
+            "SELECT metric[$4:$5] FROM t",
+    PrefLen = length(Prefix),
+    From = PrefLen + 1,
     To = From + Depth - 1,
-    Values = [From, To, From, To, Collection | MetricVals],
-    {ok, Query ++ MetricPredicate, Values}.
+    Values = [Collection, Prefix, PrefLen, From, To],
+    {ok, Query, Values}.
 
 namespaces_query(Collection)
   when is_binary(Collection) ->
-    Query = "WITH RECURSIVE t AS ("
-            "   SELECT MIN(namespace) AS namespace FROM "
-            ?DIM_TABLE
-            "     WHERE collection = $1"
-            "   UNION ALL"
-            "   SELECT (SELECT MIN(namespace) FROM "
-            ?DIM_TABLE
-            "     WHERE namespace > t.namespace"
-            "     AND collection = $1)"
-            "   FROM t WHERE t.namespace IS NOT NULL"
-            "   )"
-            "SELECT namespace FROM t WHERE namespace IS NOT NULL",
-    Values = [Collection],
-    {ok, Query, Values}.
+    namespaces_query(Collection, undefined).
 
 namespaces_query(Collection, Metric)
   when is_binary(Collection),
-       is_list(Metric) ->
-    Q = "SELECT DISTINCT(namespace) FROM " ?DIM_TABLE " "
-        "LEFT JOIN " ?MET_TABLE " "
-        "ON " ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
-        "WHERE " ?MET_TABLE ".collection = $1 AND " ?MET_TABLE ".metric = $2",
-    Vs = [Collection, Metric],
-    {ok, Q, Vs}.
-
-lookup_query({in, Collection, Metric}, Groupings) ->
-    build_lookup_query(Collection, Metric, Groupings);
-lookup_query({in, Bucket, Metric, Where}, Groupings) ->
-    build_lookup_query(Bucket, Metric, Where, Groupings).
-
-lookup_tags_query({in, Collection, Metric})
-  when is_list(Metric) ->
-    Query = "SELECT DISTINCT namespace, name, value "
-        "FROM " ?DIM_TABLE " "
-        "LEFT JOIN " ?MET_TABLE " ON "
-        ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
-        "WHERE " ?MET_TABLE ".collection = $1 and metric = $2",
-    Values = [Collection, Metric],
-    {ok, Query, Values};
-lookup_tags_query({in, Bucket, Metric, Where})
-  when is_list(Metric) ->
-    Query = "SELECT DISTINCT namespace, name, value "
-        "FROM " ?DIM_TABLE " "
-        "LEFT JOIN " ?MET_TABLE " ON "
-        ?DIM_TABLE ".metric_id = id "
-        "WHERE " ?MET_TABLE ".collection = $1 and metric = $2"
-        "AND ",
-    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where),
-    Values = [Bucket, Metric | TagPairs],
-    {ok, Query ++ TagPredicate, Values}.
-
-glob_query(Bucket, Globs) ->
-    Query = ["SELECT DISTINCT key ",
-             "FROM ", ?MET_TABLE, " ",
-             "WHERE bucket = $1 AND "],
-    GlobWheres = [glob_where(Bucket, Query, Glob) || Glob <- Globs],
-    {ok, GlobWheres}.
+       is_list(Metric); Metric =:= undefined ->
+    {SubQ, SubV} = keys_subquery(Collection, Metric),
+    Query = "SELECT DISTINCT substring(key from " ?NAMESPACE_PATTERN ")"
+            "  FROM (" ++ SubQ ++ ") AS data(key)",
+    {ok, Query, SubV}.
 
 tags_query(Collection, Namespace)
   when is_binary(Collection),
        is_binary(Namespace) ->
-    Q = "WITH RECURSIVE t AS ("
-        "   SELECT MIN(name) AS name FROM " ?DIM_TABLE
-        "     WHERE collection = $1"
-        "     AND namespace = $2"
-        "   UNION ALL"
-        "   SELECT (SELECT MIN(name) FROM " ?DIM_TABLE
-        "     WHERE name > t.name"
-        "     AND collection = $1"
-        "     AND namespace = $2)"
-        "   FROM t WHERE t.name IS NOT NULL"
-        "   )"
-        "SELECT name FROM t WHERE name IS NOT NULL",
-    Vs = [Collection, Namespace],
-    {ok, Q, Vs}.
+    tags_query(Collection, undefined, Namespace).
 
 tags_query(Collection, Metric, Namespace)
   when is_binary(Collection),
-       is_list(Metric),
-       is_binary(Namespace) ->
-    Q = "SELECT DISTINCT(name) FROM " ?DIM_TABLE " "
-        "LEFT JOIN " ?MET_TABLE " "
-        "ON " ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
-        "WHERE " ?MET_TABLE ".collection = $1 AND " ?MET_TABLE ".metric = $2 "
-        "AND " ?DIM_TABLE ".namespace = $3",
-    Vs = [Collection, Metric, Namespace],
-    {ok, Q, Vs}.
-
-
-add_tags(MID, Tags) ->
-    Fn = "add_tag",
-    build_add_tags(MID, 1, Fn, Tags, "SELECT", []).
-
-update_tags(MID, Tags) ->
-    Fn = "update_tag",
-    build_add_tags(MID, 1, Fn, Tags, "SELECT", []).
+       is_list(Metric); Metric =:= undefined,
+       is_binary(Namespace)  ->
+    {SubQ, SubV} = keys_subquery(Collection, Metric),
+    I = length(SubV),
+    Query = ["SELECT DISTINCT substring(key from " ?NAME_PATTERN ")"
+             "  FROM (", SubQ, ") AS data(key)"
+             "  WHERE key LIKE $" ++ i2l(I + 1) ++ " ESCAPE '~'"],
+    Ns1 = escape_sql_pattern(Namespace, <<>>),
+    Ns2 = encode_tag_key(Ns1, <<"%">>),
+    Values = SubV ++ [Ns2],
+    {ok, Query, Values}.
 
 values_query(Collection, Namespace, Tag)
   when is_binary(Collection),
        is_binary(Namespace),
        is_binary(Tag) ->
-    Q = "WITH RECURSIVE t AS ("
-        "   SELECT MIN(value) AS value FROM " ?DIM_TABLE
-        "     WHERE collection = $1"
-        "     AND namespace = $2"
-        "     AND name = $3"
-        "   UNION ALL"
-        "   SELECT (SELECT MIN(value) FROM " ?DIM_TABLE
-        "     WHERE value > t.value"
-        "     AND collection = $1"
-        "     AND namespace = $2"
-        "     AND name = $3)"
-        "   FROM t WHERE t.value IS NOT NULL"
-        "   )"
-        "SELECT value FROM t WHERE value IS NOT NULL",
-    Vs = [Collection, Namespace, Tag],
-    {ok, Q, Vs}.
+    Query = "SELECT DISTINCT dimensions -> $2 FROM " ?MET_TABLE
+            "  WHERE collection = $1"
+            "    AND dimensions ? $2",
+    Tag1 = encode_tag_key(Namespace, Tag),
+    Values = [Collection, Tag1],
+    {ok, Query, Values}.
 
 values_query(Collection, Metric, Namespace, Tag)
   when is_binary(Collection),
        is_list(Metric),
        is_binary(Namespace),
        is_binary(Tag) ->
-    Q = "SELECT DISTINCT(value) FROM " ?DIM_TABLE " "
-        "LEFT JOIN " ?MET_TABLE " "
-        "ON " ?DIM_TABLE ".metric_id = " ?MET_TABLE ".id "
-        "WHERE " ?MET_TABLE ".collection = $1 AND " ?MET_TABLE ".metric = $2 "
-        "AND " ?DIM_TABLE ".namespace = $3 AND name = $4",
-    Vs = [Collection, Metric, Namespace, Tag],
-    {ok, Q, Vs}.
+    Query = "SELECT DISTINCT dimensions -> $3 FROM " ?MET_TABLE
+            "  WHERE collection = $1"
+            "    AND metric = $2"
+            "    AND dimensions ? $3",
+    Tag1 = encode_tag_key(Namespace, Tag),
+    Values = [Collection, Metric, Tag1],
+    {ok, Query, Values}.
 
-get_id_query(Collection, Metric, Bucket, Key)
-  when is_binary(Collection),
-       is_list(Metric),
-       is_binary(Bucket),
-       is_list(Key) ->
-    Q = "SELECT id FROM " ?MET_TABLE " WHERE "
-        "collection = $1 AND "
-        "metric = $2 AND "
-        "bucket = $3 AND "
-        "key = $4",
-    Vs = [Collection, Metric, Bucket, Key],
-    {ok, Q, Vs}.
+lookup_query(Lookup, []) ->
+    {Condition, CVals} = lookup_condition(Lookup),
+    Query = ["SELECT bucket, key FROM metrics WHERE " | Condition],
+    {ok, Query, CVals};
+lookup_query(Lookup, KeysToRead) ->
+    {Condition, CVals} = lookup_condition(Lookup),
+    I = length(CVals),
+    Query = ["SELECT bucket, key, avals(slice(dimensions, $", i2l(I + 1), "))"
+             "  FROM metrics WHERE " | Condition],
+    Keys = [encode_tag_key(Ns, Name) || {Ns, Name} <- KeysToRead],
+    Values = CVals ++ [Keys],
+    {ok, Query, Values}.
+
+lookup_tags_query(Lookup) ->
+    {Condition, CVals} = lookup_condition(Lookup),
+    Query = ["SELECT (kv).key, (kv).value"
+             "  FROM ("
+             "    SELECT DISTINCT each(dimensions)"
+             "      FROM metrics WHERE ", Condition,
+             "  ) AS data(kv)"],
+    {ok, Query, CVals}.
+
+glob_query(Bucket, Globs) ->
+    Criteria = criteria_from_globs(Globs),
+    {Condition, CVals} = criteria_condition(Criteria, 0),
+    I = length (CVals),
+    Query = ["SELECT DISTINCT key "
+             "  FROM " ?MET_TABLE " "
+             "  WHERE ", Condition,
+             "    AND bucket = $", i2l(I + 1)],
+    Values = CVals ++ [Bucket],
+    {ok, Query, Values}.
 
 %%====================================================================
 %% Internal functions
 %%====================================================================
 
-build_lookup_query(Collection, Metric, Grouping)
-  when is_list(Metric); Metric =:= undefined ->
-    GroupingCount = length(Grouping),
-    GroupingNames = grouping_names(GroupingCount),
-    {N, {MetricWhere, MetricName}} = metric_where(2, Metric),
-    Query = ["SELECT DISTINCT bucket, key ",
-             grouping_select(GroupingNames),
-             "FROM " ?MET_TABLE " ",
-             grouping_join(GroupingNames),
-             "WHERE " ?MET_TABLE ".collection = $1 ",
-             MetricWhere,
-             grouping_where(GroupingNames, N)],
-    FlatGrouping = lists:flatten([[Namespace, Name] ||
-                                     {Namespace, Name} <- Grouping]),
-    Values = [Collection | MetricName ++ FlatGrouping],
-    {ok, Query, Values}.
+keys_subquery(Collection, undefined) ->
+    Condition = "collection = $1",
+    Values = [Collection],
+    keys_subquery_with_condition(Condition, Values);
+keys_subquery(Collection, Metric) ->
+    Condition = "collection = $1 AND metric = $2",
+    Values = [Collection, Metric],
+    keys_subquery_with_condition(Condition, Values).
 
-build_lookup_query(Bucket, Metric, Where, Grouping)
-  when is_list(Metric); Metric =:= undefined ->
-    GroupingCount = length(Grouping),
-    GroupingNames = grouping_names(GroupingCount),
-    {N, {MetricWhere, MetricName}} = metric_where(2, Metric),
-    Query = ["SELECT DISTINCT bucket, key",
-             grouping_select(GroupingNames),
-             "FROM ", ?MET_TABLE, " ",
-             grouping_join(GroupingNames),
-             "WHERE " ?MET_TABLE ".collection = $1 ",
-             MetricWhere,
-             grouping_where(GroupingNames, N),
-             "AND "],
-    {_N, TagPairs, TagPredicate} =
-        %% We need to multipy count by two since we got names
-        %% and namespaces
-        build_tag_lookup(Where, N + GroupingCount * 2),
-    FlatGrouping = lists:flatten([[Namespace, Name] ||
-                                     {Namespace, Name} <- Grouping]),
-    Values = [Bucket | MetricName ++ FlatGrouping ++ TagPairs],
-    {ok, Query ++ TagPredicate, Values}.
+keys_subquery_with_condition(Condition, Values) ->
+    Query = "WITH RECURSIVE t AS ("
+            "  SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
+            "    WHERE " ++ Condition ++
+            "  UNION"
+            "  SELECT (SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
+            "    WHERE akeys(dimensions) > t.keys"
+            "    AND " ++ Condition ++ ")"
+            "  FROM t"
+            "  )"
+            "SELECT DISTINCT unnest(keys) FROM t",
+    {Query, Values}.
 
-glob_where(Bucket, Query, Glob) ->
-    Where = and_tags(glob_to_tags(Glob)),
-    {_N, TagPairs, TagPredicate} = build_tag_lookup(Where, 2),
-    Values = [Bucket | TagPairs],
-    {Query ++ TagPredicate, Values}.
+lookup_condition({in, Collection, Metric}) ->
+    {"collection = $1 AND metric = $2",
+     [Collection, Metric]};
+lookup_condition({in, Collection, Metric, Where}) ->
+    Criteria = lookup_criteria(Where),
+    {Condition, CValues} = criteria_condition(Criteria, 2),
+    Query = ["collection = $1 AND metric = $2 AND " | Condition],
+    Values = [Collection, Metric | CValues],
+    {Query, Values}.
 
-and_tags([E]) ->
-    E;
-and_tags([E| R]) ->
-    {'and', E, and_tags(R)}.
+%% Postgres hstore gist index is really quick to resolve intersection (AND)
+%% between conditions based on one of operator: '@>' (containing exact values),
+%% '?&' (containing all keys) and '?|' (containing any keys).
+%%
+%% Following function will convert dqe where clause to criteria operating on
+%% those operators, doing some optimizations where possible.
+%%
+%% First lets start from converting simple operators to something we can perform
+%% on hstores
+lookup_criteria({'=', Tag, Value}) ->
+    {'@>', [{Tag, Value}]};
+lookup_criteria({'!=', Tag, Value}) ->
+    {'not', {'@>', [{Tag, Value}]}};
+%% containment checks connected by 'and' can be joined to one
+lookup_criteria({'and', L, R}) ->
+    case {lookup_criteria(L), lookup_criteria(R)} of
+        {{'@>', LKVs}, {'@>', RKVs}} ->
+            {'@>', LKVs ++ RKVs};
+        {L1, L2} ->
+            {'and', L1, L2}
+    end;
+%% With 'or' operators we can do much, maybe beside trying to optimize children
+lookup_criteria({'or', L, R}) ->
+    L1 = lookup_criteria(L),
+    R1 = lookup_criteria(R),
+    {'or', L1, R1}.
+%% We can do further improvements using '?&' and '?!' operators once we add
+%% support for tag presence only conditions.
 
-glob_to_tags(Glob) ->
-    glob_to_tags(Glob, 1,
-                 [{'=', {tag, <<"ddb">>, <<"key_length">>},
-                   integer_to_binary(length(Glob))}]).
+%% special, optimized operators
+criteria_condition({'@>', Parts}, I)  ->
+    Cond = ["dimensions @> $", i2l(I+1)],
+    HStore = {[{encode_tag(T), V} || {T, V} <- Parts]},
+    {Cond, [HStore]};
+criteria_condition({Op, Parts}, I)
+  when Op =:= '?&'; Op =:= '?|' ->
+    OpStr = case Op of
+                '?&' -> "?&";
+                '?|' -> "?|"
+            end,
+    Cond = ["dimensions ", OpStr, " $", i2l(I+1)],
+    {Tags, _} = lists:unzip(Parts),
+    Keys = lists:map(fun encode_tag/1, Tags),
+    {Cond, [Keys]};
+%% joining operators
+criteria_condition({Op, L, R}, I)
+  when Op =:= 'and'; Op =:= 'or' ->
+    OpStr = case Op of
+                'and' -> "AND";
+                'or' -> "OR"
+            end,
+    {LCond, LVals} = criteria_condition(L, I),
+    {RCond, RVals} = criteria_condition(R, I + length(LVals)),
+    %% if right part has further nested joining operators, we need brackets
+    RCond1 = case R of
+                 {Op, _, _} when Op =:= 'and'; Op =:= 'or' ->
+                     [$(, RCond, $)];
+                 _ ->
+                     RCond
+             end,
+    {[LCond, " ", OpStr, " ", RCond1], LVals ++ RVals};
+criteria_condition({'not', Nested}, I) ->
+    {Cond, Values} = criteria_condition(Nested, I),
+    {["NOT " | Cond], Values}.
 
-glob_to_tags([], _,  Tags) ->
-    Tags;
-glob_to_tags(['*' | R], N, Tags) ->
-    glob_to_tags(R, N + 1, Tags);
+criteria_from_globs(Globs) ->
+    criteria_from_globs(Globs, []).
 
-glob_to_tags([E | R] , N, Tags) ->
-    PosBin = integer_to_binary(N),
-    T = {'=', {tag, <<"ddb">>, <<"part_", PosBin/binary>>}, E},
-    glob_to_tags(R, N + 1, [T | Tags]).
+criteria_from_globs([], Acc) ->
+    Acc;
+criteria_from_globs([Pattern | Rest], []) ->
+    Crit = criteria_from_glob_pattern(Pattern),
+    criteria_from_globs(Rest, Crit);
+criteria_from_globs([Pattern | Rest], Acc) ->
+    Crit = criteria_from_glob_pattern(Pattern),
+    criteria_from_globs(Rest, {'or', Crit, Acc}).
 
-build_tag_lookup(Where) ->
-    build_tag_lookup(Where, 3).
+criteria_from_glob_pattern(Pattern) ->
+    criteria_from_glob_pattern(Pattern, 0, []).
 
-build_tag_lookup(Where, N) ->
-    build_tag_lookup(Where, N, []).
-
-build_tag_lookup({'and', L, R}, N, TagPairs) ->
-    {N1, TagPairs1, Str1} = build_tag_lookup(L, N, TagPairs),
-    {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
-    {N2, TagPairs2, ["(", Str1, " AND ", Str2, ")"]};
-build_tag_lookup({'or', L, R}, N, TagPairs) ->
-    {N1, TagPairs1, Str1} = build_tag_lookup(L, N, TagPairs),
-    {N2, TagPairs2, Str2} = build_tag_lookup(R, N1, TagPairs1),
-    {N2, TagPairs2, ["(", Str1, " OR ", Str2, ")"]};
-build_tag_lookup({'=', {tag, NS, K}, V}, NIn, Vals) ->
-    Str = ["id IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE ",
-           " namespace = $", i2l(NIn),
-           " AND name = $", i2l(NIn+1),
-           " AND value = $", i2l(NIn+2), ")"],
-    {NIn+3, [NS, K, V | Vals], Str};
-build_tag_lookup({'!=', {tag, NS, K}, V}, NIn, Vals) ->
-    Str = ["id NOT IN (SELECT metric_id FROM " ?DIM_TABLE " WHERE ",
-           " namespace = $", i2l(NIn),
-           " AND name = $", i2l(NIn+1),
-           " AND value = $", i2l(NIn+2), ")"],
-    {NIn+3, [NS, K, V | Vals], Str}.
-
-build_add_tags(MID, P, Fn, [{NS, N, V}], Q, Vs) ->
-    {[Q, add_tag(Fn, P)], lists:reverse([V, N, NS, MID | Vs])};
-
-build_add_tags(MID, P, Fn, [{NS, N, V} | Tags], Q, Vs) ->
-    Q1 = [Q, add_tag(Fn, P), ","],
-    Vs1 = [V, N, NS, MID | Vs],
-    build_add_tags(MID, P+4, Fn, Tags, Q1, Vs1).
-
-add_tag(Fn, P)  ->
-    [" ", Fn, "($", i2l(P), ", "
-     "$", i2l(P + 1), ", "
-     "$", i2l(P + 2), ", "
-     "$", i2l(P + 3), ")"].
-
-grouping_names(0) ->
-    [];
-grouping_names(N) ->
-    ["g" ++ i2l(I) || I <- lists:seq(1, N)].
-
-grouping_select([]) ->
-    " ";
-grouping_select([Name | R]) ->
-    [", ARRAY[", Name, ".value" | grouping_select_(R)].
-
-grouping_select_([]) ->
-    "] ";
-grouping_select_([Name | R]) ->
-    [", ", Name, ".value" | grouping_select_(R)].
-
-metric_where(N, undefined) ->
-    {N, {"", []}};
-metric_where(N, Metric) ->
-    MetricPredicate = [" AND metric = $", i2l(N), " "],
-    {N + 1, {MetricPredicate, [Metric]}}.
-
-%% Example output:
-%% AND metric[1:2] = '{base, cpu}'
-metric_variant_where([], N) ->
-    {N, [], ""};
-metric_variant_where(Prefix, N) ->
-    L = length(Prefix),
-    Pred = ["AND metric[1:$", i2l(N), "] = $", i2l(N + 1), " "],
-    Values = [L, Prefix],
-    {N + 2, Values, Pred}.
-
-grouping_where([], _) ->
-    "";
-grouping_where([Name | R], Pos) ->
-    ["AND ", Name, ".namespace = $",  i2l(Pos), " "
-     "AND ", Name, ".name = $",  i2l(Pos + 1), " " |
-     grouping_where(R, Pos + 2)].
-
-grouping_join([]) ->
-    " ";
-grouping_join([N | R]) ->
-    ["INNER JOIN ", ?DIM_TABLE, " AS ", N,
-     " ON ", N, ".metric_id = ", ?MET_TABLE ".id " | grouping_join(R)].
+criteria_from_glob_pattern([], Count, Acc) ->
+    LenCrit = {{tag, <<"ddb">>, <<"key_length">>}, integer_to_binary(Count)},
+    {'@>', [LenCrit | Acc]};
+criteria_from_glob_pattern(['*' | Rest], Count, Acc) ->
+    criteria_from_glob_pattern(Rest, Count + 1, Acc);
+criteria_from_glob_pattern([Part | Rest], Count, Acc) ->
+    CountBin = integer_to_binary(Count + 1),
+    TName = <<"part_",  CountBin/binary>>,
+    Acc1 = [{{tag, <<"ddb">>, TName}, Part} | Acc],
+    criteria_from_glob_pattern(Rest, Count + 1, Acc1).
 
 i2l(I) ->
     integer_to_list(I).
+
+encode_tag({tag, Ns, Name}) ->
+    encode_tag_key(Ns, Name).
+
+escape_sql_pattern(<<>>, Acc) ->
+    Acc;
+escape_sql_pattern(<<C:8/integer, Rest/binary>>, Acc)
+  when C =:= $%; C =:= $~; C =:= $_->
+    escape_sql_pattern(Rest, <<Acc/binary, $~, C:8/integer>>);
+escape_sql_pattern(<<C:1/binary, Rest/binary>>, Acc) ->
+    escape_sql_pattern(Rest, <<Acc/binary, C/binary>>).
+
