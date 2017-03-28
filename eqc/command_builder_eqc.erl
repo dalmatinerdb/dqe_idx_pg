@@ -15,11 +15,12 @@
 %%%-------------------------------------------------------------------
 
 prop_add_metric() ->
-    ?FORALL(GenData, {collection(), metric(), bucket(), key()},
+    ?FORALL(GenData, {collection(), metric(), bucket(), key(),
+                      non_empty_list(tag())},
         begin
-            {Collection, Metric, Bucket, Key} = GenData,
+            {Collection, Metric, Bucket, Key, Ts} = GenData,
             Fun = fun(C) ->
-                {ok, Q, _V} = ?M:add_metric(Collection, Metric, Bucket, Key),
+                {ok, Q, _V} = ?M:add_metric(Collection, Metric, Bucket, Key, Ts),
                 {Res, _} = epgsql:parse(C, Q),
                 Res
             end,
@@ -40,25 +41,14 @@ prop_delete_metric() ->
         end
     ).
 
-prop_add_tags() ->
-    ?FORALL(GenData, {row_id(), collection(), non_empty_list(tag())},
-        begin
-            {MID, Collection, Tags} = GenData,
-            Fun = fun(C) ->
-                {ok, Q, _V} = ?M:add_tags(MID, Collection, Tags),
-                {Res, _} = epgsql:parse(C, Q),
-                Res
-            end,
-            ok =:= with_connection(Fun)
-        end
-    ).
-
 prop_update_tags() ->
-    ?FORALL(GenData, {row_id(), collection(), non_empty_list(tag())},
+    ?FORALL(GenData, {collection(), metric(), bucket(), key(),
+                      non_empty_list(tag())},
         begin
-            {MID, Collection, Tags} = GenData,
+            {Collection, Metric, Bucket, Key, Tags} = GenData,
             Fun = fun(C) ->
-                {ok, Q, _V} = ?M:update_tags(MID, Collection, Tags),
+                {ok, Q, _V} = ?M:update_tags(Collection, Metric,
+                                             Bucket, Key, Tags),
                 {Res, _} = epgsql:parse(C, Q),
                 Res
             end,
@@ -66,12 +56,14 @@ prop_update_tags() ->
         end
     ).
 
-prop_delete_tag() ->
-    ?FORALL(GenData, {row_id(), namespace(), tag_name()},
+prop_delete_tags() ->
+    ?FORALL(GenData, {collection(), metric(), bucket(), key(),
+                      non_empty_list(tag())},
         begin
-            {MID, Namespace, TagName} = GenData,
+            {Collection, Metric, Bucket, Key, Tags} = GenData,
             Fun = fun(C) ->
-                {ok, Q, _V} = ?M:delete_tag(MID, Namespace, TagName),
+                {ok, Q, _V} = ?M:delete_tags(Collection, Metric,
+                                            Bucket, Key, Tags),
                 {Res, _} = epgsql:parse(C, Q),
                 Res
             end,

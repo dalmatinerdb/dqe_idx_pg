@@ -10,9 +10,10 @@
          collections/0, metrics/1, metrics/3, namespaces/1, namespaces/2,
          tags/2, tags/3, values/3, values/4, expand/2,
          add/4, add/5, update/5,
-         delete/4, delete/5,
-         get_id/4, tdelta/1
+         delete/4, delete/5
         ]).
+
+-import(dqe_idx_pg_utils, [decode_ns/1, hstore_to_tags/1, kvpair_to_tag/1]).
 
 %%====================================================================
 %% API functions
@@ -45,7 +46,8 @@ lookup(Query, Groupings) ->
 lookup_tags(Query) ->
     {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
     Rows = execute({select, "lookup_tags/1", Q, Vs}),
-    {ok, Rows}.
+    R = [kvpair_to_tag(KV) || KV <- Rows],
+    {ok, R}.
 
 collections() ->
     {ok, Q, Vs} = query_builder:collections_query(),
@@ -67,12 +69,12 @@ metrics(Collection, Prefix, Depth) ->
 namespaces(Collection) ->
     {ok, Q, Vs} = query_builder:namespaces_query(Collection),
     Rows = execute({select, "namespaces/1", Q, Vs}),
-    {ok, strip_tpl(Rows)}.
+    {ok, decode_ns_rows(Rows)}.
 
 namespaces(Collection, Metric) ->
     {ok, Q, Vs} = query_builder:namespaces_query(Collection, Metric),
     Rows = execute({select, "namespaces/2", Q, Vs}),
-    {ok, strip_tpl(Rows)}.
+    {ok, decode_ns_rows(Rows)}.
 
 tags(Collection, Namespace) ->
     {ok, Q, Vs} = query_builder:tags_query(Collection, Namespace),
@@ -101,62 +103,31 @@ expand(Bucket, []) when is_binary(Bucket) ->
 expand(Bucket, Globs) when
       is_binary(Bucket),
       is_list(Globs) ->
-    {ok, QueryMap} = query_builder:glob_query(Bucket, Globs),
-    RowSets = [begin
-                   Rows = execute({select, "expand/2", Q, Vs}),
-                   sets:from_list(Rows)
-               end || {Q, Vs} <- QueryMap],
-
-    %% Destructuring into [H | T] is safe since the cardinality of `RowSets' is
-    %% equal to that of `Globs'
-    [H | T] = RowSets,
-    UniqueRows = lists:foldl(fun sets:union/2, H, T),
-    Metrics = [M || {M} <- sets:to_list(UniqueRows)],
+    {ok, Q, Vs} = query_builder:glob_query(Bucket, Globs),
+    Rows = execute({select, "expand/2", Q, Vs}),
+    Metrics = [M || {M} <- Rows],
     {ok, {Bucket, Metrics}}.
-
--spec get_id(collection(),
-             metric(),
-             bucket(),
-             key()) -> {ok, row_id()} | not_found().
-get_id(Collection, Metric, Bucket, Key) ->
-    {ok, Q, Vs} = query_builder:get_id_query(Collection, Metric, Bucket, Key),
-    case execute({select, "get_id/4", Q, Vs}) of
-        [{ID}] ->
-            {ok, ID};
-        _ ->
-            {'error', not_found}
-    end.
 
 -spec add(collection(),
           metric(),
           bucket(),
           key()) -> ok | {ok, row_id()} | sql_error().
 add(Collection, Metric, Bucket, Key) ->
-    {ok, Q, Vs} = command_builder:add_metric(Collection, Metric, Bucket, Key),
-    case execute({command, "add/4", Q, Vs}) of
-        {ok, 0, []} ->
-            ok;
-        {ok, _Count, [{MID}]} ->
-            {ok, MID};
-        EAdd ->
-            EAdd
-    end.
+    add(Collection, Metric, Bucket, Key, []).
 
 -spec add(collection(),
           metric(),
           bucket(),
           key(),
           [tag()]) -> ok | {ok, row_id()} | sql_error().
-add(Collection, Metric, Bucket, Key, []) ->
-    add(Collection, Metric, Bucket, Key);
-add(Collection, Metric, Bucket, Key, NVs) ->
-    case add(Collection, Metric, Bucket, Key) of
-        ok ->
+add(Collection, Metric, Bucket, Key, Tags) ->
+    {ok, Q, Vs} = command_builder:add_metric(
+                    Collection, Metric, Bucket, Key, Tags),
+    case execute({command, "add/5", Q, Vs}) of
+        {ok, 0, []} ->
             ok;
-        {ok, MID} ->
-            {ok, Q, Vs} = command_builder:add_tags(MID, Collection, NVs),
-            {ok, _Count, _Rows} = execute({command, "add_tags/3", Q, Vs}),
-            {ok, MID};
+        {ok, _Count, [{Dims}]} ->
+            {ok, hstore_to_tags(Dims)};
         EAdd ->
             EAdd
     end.
@@ -167,17 +138,13 @@ add(Collection, Metric, Bucket, Key, NVs) ->
              key(),
              [tag()]) -> {ok, row_id()} | not_found() | sql_error().
 update(Collection, Metric, Bucket, Key, NVs) ->
-    AddRes = case add(Collection, Metric, Bucket, Key) of
-                 ok ->
-                     get_id(Collection, Metric, Bucket, Key);
-                 RAdd ->
-                     RAdd
-             end,
-    case AddRes of
-        {ok, MID} ->
-            {ok, Q, Vs} = command_builder:update_tags(MID, Collection, NVs),
-            {ok, _Count, _Rows} = execute({command, "update_tags/3", Q, Vs}),
-            {ok, MID};
+    {ok, Q, Vs} = command_builder:update_tags(
+                    Collection, Metric, Bucket, Key, NVs),
+    case execute({command, "update/5", Q, Vs}) of
+        {ok, 0, []} ->
+            ok;
+        {ok, _Count, [{Dims}]} ->
+            {ok, hstore_to_tags(Dims)};
         EAdd ->
             EAdd
     end.
@@ -202,17 +169,13 @@ delete(Collection, Metric, Bucket, Key) ->
              key(),
              [{tag_ns(), tag_name()}]) -> ok | sql_error().
 delete(Collection, Metric, Bucket, Key, Tags) ->
-    case get_id(Collection, Metric, Bucket, Key) of
-        {error, not_found} ->
+    {ok, Q, Vs} = command_builder:delete_tags(
+                    Collection, Metric, Bucket, Key, Tags),
+    case execute({command, "delete/5", Q, Vs}) of
+        {ok, _Count, _Rows} ->
             ok;
-        {ok, MetricID} ->
-            Rs = [delete_tag(MetricID, NS, Name) || {NS, Name} <- Tags],
-            case [R || R <- Rs, R /= ok] of
-                [] ->
-                    ok;
-                [E | _] ->
-                    E
-            end
+        E ->
+            E
     end.
 
 %%====================================================================
@@ -225,14 +188,8 @@ tdelta(T0) ->
 strip_tpl(L) ->
     [E || {E} <- L].
 
-delete_tag(MetricID, Namespace, TagName) ->
-    {ok, Q, Vs} = command_builder:delete_tag(MetricID, Namespace, TagName),
-    case execute({command, "delete_tag/3", Q, Vs}) of
-        {ok, _Count, _Rows} ->
-            ok;
-        E ->
-            E
-    end.
+decode_ns_rows(Rows) ->
+    [decode_ns(E) || {E} <- Rows].
 
 execute({select, Name, Q, Vs}) ->
     T0 = erlang:system_time(),
