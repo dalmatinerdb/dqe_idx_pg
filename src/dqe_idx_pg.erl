@@ -41,7 +41,9 @@ lookup(Query) ->
 lookup(Query, Groupings) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, Groupings),
     Rows = execute({select, "lookup/2", Q, Vs}),
-    {ok, Rows}.
+    R = [{Bucket, Key, get_values(Groupings, Dimensions)} ||
+            {Bucket, Key, Dimensions} <- Rows],
+    {ok, R}.
 
 lookup_tags(Query) ->
     {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
@@ -213,3 +215,21 @@ execute({command, Name, Q, Vs}) ->
                        " ~p", [Name, tdelta(T0), Q, Vs, E]),
             E
     end.
+
+get_values(Grouping, {KVs}) when is_list(KVs) ->
+    Tags = [kvpair_to_tag(KV) || KV <- KVs],
+    get_values(Grouping, Tags, []).
+
+get_values([], _Tags, Acc) ->
+    lists:reverse(Acc);
+get_values([TagKey | Rest], Tags, Acc) ->
+    Value = get_tag_value(TagKey, Tags),
+    get_values(Rest, Tags, [Value | Acc]).
+
+get_tag_value({_, _}, []) ->
+    undefined;
+get_tag_value({Ns, Name}, [{TNs, TName, TValue} | _])
+  when Ns =:= TNs, Name =:= TName ->
+    TValue;
+get_tag_value(TagKey, [_ | Rest]) ->
+    get_tag_value(TagKey, Rest).

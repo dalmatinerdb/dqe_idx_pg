@@ -129,7 +129,7 @@ lookup_query(Lookup, []) ->
 lookup_query(Lookup, KeysToRead) ->
     {Condition, CVals} = lookup_condition(Lookup),
     I = length(CVals),
-    Query = ["SELECT bucket, key, avals(slice(dimensions, $", i2l(I + 1), "))"
+    Query = ["SELECT bucket, key, slice(dimensions, $", i2l(I + 1), ")"
              "  FROM metrics WHERE " | Condition],
     Keys = [encode_tag_key(Ns, Name) || {Ns, Name} <- KeysToRead],
     Values = CVals ++ [Keys],
