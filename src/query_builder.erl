@@ -11,8 +11,8 @@
 
 -include("dqe_idx_pg.hrl").
 
--define(NAMESPACE_PATTERN, "'^(([^:]|\\\\\\\\|\\\\:)+):'").
--define(NAME_PATTERN, "'^(?:[^:]|\\\\\\\\|\\\\:)+:(.*)$'").
+-define(NAMESPACE_PATTERN, "'^(([^:]|\\\\\\\\|\\\\:)*):'").
+-define(NAME_PATTERN, "'^(?:[^:]|\\\\\\\\|\\\\:)*:(.*)$'").
 
 %%====================================================================
 %% API
@@ -26,7 +26,7 @@ collections_query() ->
             "     WHERE collection > t.collection)"
             "   FROM t WHERE t.collection IS NOT NULL"
             "   )"
-            "SELECT collection FROM t",
+            "SELECT collection FROM t WHERE collection IS NOT NULL",
     Values = [],
     {ok, Query, Values}.
 
@@ -41,7 +41,7 @@ metrics_query(Collection)
             "     AND collection = $1)"
             "   FROM t WHERE t.metric IS NOT NULL"
             "   )"
-            "SELECT metric FROM t",
+            "SELECT metric FROM t WHERE t IS NOT NULL",
     Values = [Collection],
     {ok, Query, Values}.
 
