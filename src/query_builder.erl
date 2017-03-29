@@ -41,7 +41,7 @@ metrics_query(Collection)
             "     AND collection = $1)"
             "   FROM t WHERE t.metric IS NOT NULL"
             "   )"
-            "SELECT metric FROM t WHERE t IS NOT NULL",
+            "SELECT metric FROM t WHERE metric IS NOT NULL",
     Values = [Collection],
     {ok, Query, Values}.
 
@@ -56,11 +56,12 @@ metrics_query(Collection, Prefix, Depth)
             "   UNION ALL"
             "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
             "     WHERE metric > t.metric"
-            "       AND metric[1:$5] <> t.metric[1:$4]"
+            "       AND metric[1:$3] = $2"
+            "       AND metric[1:$5] <> t.metric[1:$5]"
             "       AND collection = $1)"
-            "   FROM t WHERE t.metric[1:$3] = $2"
+            "   FROM t WHERE t.metric IS NOT NULL"
             "   )"
-            "SELECT metric[$4:$5] FROM t",
+            "SELECT metric[$4:$5] FROM t WHERE metric[1:$3] = $2",
     PrefLen = length(Prefix),
     From = PrefLen + 1,
     To = From + Depth - 1,
