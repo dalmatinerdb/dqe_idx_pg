@@ -245,14 +245,10 @@ criteria_condition({Op, L, R}, I)
             end,
     {LCond, LVals} = criteria_condition(L, I),
     {RCond, RVals} = criteria_condition(R, I + length(LVals)),
-    %% if right part has further nested joining operators, we need brackets
-    RCond1 = case R of
-                 {Op, _, _} when Op =:= 'and'; Op =:= 'or' ->
-                     [$(, RCond, $)];
-                 _ ->
-                     RCond
-             end,
-    {[LCond, " ", OpStr, " ", RCond1], LVals ++ RVals};
+    %% It seems that postgres will always evaluate ANDs before ORs independent
+    %% of order, so we put brackets arroudn all logical operators to get right
+    %% evaluation order.
+    {["(", LCond, " ", OpStr, " ", RCond, ")"], LVals ++ RVals};
 criteria_condition({'not', Nested}, I) ->
     {Cond, Values} = criteria_condition(Nested, I),
     {["NOT " | Cond], Values}.
