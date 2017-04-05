@@ -15,6 +15,8 @@
 
 -import(dqe_idx_pg_utils, [decode_ns/1, hstore_to_tags/1, kvpair_to_tag/1]).
 
+-define(TIMEOUT, 5 * 1000).
+
 %%====================================================================
 %% API functions
 %%====================================================================
@@ -194,7 +196,7 @@ decode_ns_rows(Rows) ->
 
 execute({select, Name, Q, Vs}) ->
     T0 = erlang:system_time(),
-    case pgapp:equery(Q, Vs) of
+    case pgapp:equery(Q, Vs, timeout()) of
         {ok, _Cols, Rows} ->
             lager:debug("[dqe_idx:pg:~p] PG Query took ~pms: ~s <- ~p",
                         [Name, tdelta(T0), Q, Vs]),
@@ -204,7 +206,7 @@ execute({select, Name, Q, Vs}) ->
     end;
 execute({command, Name, Q, Vs}) ->
     T0 = erlang:system_time(),
-    case pgapp:equery(Q, Vs) of
+    case pgapp:equery(Q, Vs, timeout()) of
         {ok, Count} ->
             lager:debug("[dqe_idx:pg:~p] PG Query took ~pms: ~s <- ~p",
                         [Name, tdelta(T0), Q, Vs]),
@@ -239,3 +241,6 @@ get_tag_value({Ns, Name}, [{TNs, TName, TValue} | _])
     TValue;
 get_tag_value(TagKey, [_ | Rest]) ->
     get_tag_value(TagKey, Rest).
+
+timeout() ->
+    application:get_env(dqe_idx_pg, timeout, ?TIMEOUT).
