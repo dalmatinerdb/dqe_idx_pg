@@ -11,8 +11,8 @@
 
 -include("dqe_idx_pg.hrl").
 
--define(NAMESPACE_PATTERN, "'^(([^:]|\\\\\\\\|\\\\:)+):'").
--define(NAME_PATTERN, "'^(?:[^:]|\\\\\\\\|\\\\:)+:(.*)$'").
+-define(NAMESPACE_PATTERN, "'^(([^:]|\\\\\\\\|\\\\:)*):'").
+-define(NAME_PATTERN, "'^(?:[^:]|\\\\\\\\|\\\\:)*:(.*)$'").
 
 %%====================================================================
 %% API
@@ -26,7 +26,7 @@ collections_query() ->
             "     WHERE collection > t.collection)"
             "   FROM t WHERE t.collection IS NOT NULL"
             "   )"
-            "SELECT collection FROM t",
+            "SELECT collection FROM t WHERE collection IS NOT NULL",
     Values = [],
     {ok, Query, Values}.
 
@@ -41,7 +41,7 @@ metrics_query(Collection)
             "     AND collection = $1)"
             "   FROM t WHERE t.metric IS NOT NULL"
             "   )"
-            "SELECT metric FROM t",
+            "SELECT metric FROM t WHERE metric IS NOT NULL",
     Values = [Collection],
     {ok, Query, Values}.
 
@@ -56,11 +56,12 @@ metrics_query(Collection, Prefix, Depth)
             "   UNION ALL"
             "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
             "     WHERE metric > t.metric"
-            "       AND metric[1:$5] <> t.metric[1:$4]"
+            "       AND metric[1:$3] = $2"
+            "       AND metric[1:$5] <> t.metric[1:$5]"
             "       AND collection = $1)"
-            "   FROM t WHERE t.metric[1:$3] = $2"
+            "   FROM t WHERE t.metric IS NOT NULL"
             "   )"
-            "SELECT metric[$4:$5] FROM t",
+            "SELECT metric[$4:$5] FROM t WHERE metric[1:$3] = $2",
     PrefLen = length(Prefix),
     From = PrefLen + 1,
     To = From + Depth - 1,
@@ -244,14 +245,10 @@ criteria_condition({Op, L, R}, I)
             end,
     {LCond, LVals} = criteria_condition(L, I),
     {RCond, RVals} = criteria_condition(R, I + length(LVals)),
-    %% if right part has further nested joining operators, we need brackets
-    RCond1 = case R of
-                 {Op, _, _} when Op =:= 'and'; Op =:= 'or' ->
-                     [$(, RCond, $)];
-                 _ ->
-                     RCond
-             end,
-    {[LCond, " ", OpStr, " ", RCond1], LVals ++ RVals};
+    %% It seems that postgres will always evaluate ANDs before ORs independent
+    %% of order, so we put brackets arroudn all logical operators to get right
+    %% evaluation order.
+    {["(", LCond, " ", OpStr, " ", RCond, ")"], LVals ++ RVals};
 criteria_condition({'not', Nested}, I) ->
     {Cond, Values} = criteria_condition(Nested, I),
     {["NOT " | Cond], Values}.
