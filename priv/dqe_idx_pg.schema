@@ -45,4 +45,4 @@
 %% @doc How long a pool worker should wait before timing out
 {mapping, "idx.pg.timeout", "dqe_idx_pg.timeout",
  [{default, "5s"},
-  {datatype, {time, ms}}]}.
+  {datatype, {duration, ms}}]}.
