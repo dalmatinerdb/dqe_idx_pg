@@ -182,9 +182,17 @@ keys_subquery_with_condition(Condition, Values) ->
             "SELECT DISTINCT unnest(keys) FROM t",
     {Query, Values}.
 
+lookup_condition({in, Collection, undefined}) ->
+    {"collection = $1", [Collection]};
 lookup_condition({in, Collection, Metric}) ->
     {"collection = $1 AND metric = $2",
      [Collection, Metric]};
+lookup_condition({in, Collection, undefined, Where}) ->
+    Criteria = lookup_criteria(Where),
+    {Condition, CValues} = criteria_condition(Criteria, 1),
+    Query = ["collection = $1 AND " | Condition],
+    Values = [Collection | CValues],
+    {Query, Values};
 lookup_condition({in, Collection, Metric, Where}) ->
     Criteria = lookup_criteria(Where),
     {Condition, CValues} = criteria_condition(Criteria, 2),
