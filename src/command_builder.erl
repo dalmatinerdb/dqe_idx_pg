@@ -25,7 +25,9 @@ add_metric(Collection, Metric, Bucket, Key, Tags)
     Query = "INSERT INTO " ?MET_TABLE " "
             "(collection, metric, bucket, key, dimensions) VALUES "
             "($1, $2, $3, $4, $5) "
-            "ON CONFLICT DO NOTHING RETURNING dimensions",
+            "ON CONFLICT DO UPDATE"
+            "  SET dimensions = " ?MET_TABLE ".dimensions || excluded.dimensions"
+            "RETURNING dimensions",
     HStore = tags_to_hstore(Tags),
     Values = [Collection, Metric, Bucket, Key, HStore],
     {ok, Query, Values}.
