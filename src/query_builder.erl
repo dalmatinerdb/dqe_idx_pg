@@ -218,6 +218,12 @@ lookup_criteria({'and', L, R}) ->
     case {lookup_criteria(L), lookup_criteria(R)} of
         {{'@>', LKVs}, {'@>', RKVs}} ->
             {'@>', LKVs ++ RKVs};
+        % or-distributive law -> A(B + C) = A.B + A.C
+        {{'@>', LKVs}, {'or', {'@>', OrLKVs}, {'@>', OrRKVs}}} ->
+            {'or', {'@>', OrLKVs ++ LKVs}, {'@>', OrRKVs ++ LKVs}};
+        % or-distributive law -> (B + C)A = B.A + C.A
+        {{'or', {'@>', OrLKVs}, {'@>', OrRKVs}}, {'@>', RKVs}} ->
+            {'or', {'@>', OrLKVs ++ RKVs}, {'@>', OrRKVs ++ RKVs}};
         {L1, L2} ->
             {'and', L1, L2}
     end;
@@ -300,4 +306,3 @@ escape_sql_pattern(<<C:8/integer, Rest/binary>>, Acc)
     escape_sql_pattern(Rest, <<Acc/binary, $~, C:8/integer>>);
 escape_sql_pattern(<<C:1/binary, Rest/binary>>, Acc) ->
     escape_sql_pattern(Rest, <<Acc/binary, C/binary>>).
-
