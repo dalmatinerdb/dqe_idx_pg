@@ -6,7 +6,7 @@
 %% API exports
 -export([
          init/0,
-         lookup/1, lookup/2, lookup_tags/1,
+         lookup/4, lookup/5, lookup_tags/1,
          collections/0, metrics/1, metrics/3, namespaces/1, namespaces/2,
          tags/2, tags/3, values/3, values/4, expand/2,
          add/4, add/5, update/5,
@@ -33,15 +33,17 @@ init() ->
         end,
     pgapp:connect([{host, Host}, {port, Port} | Opts1]).
 
-lookup(Query) ->
+lookup(Query, Start, Finish, _Opts) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, []),
     Rows = execute({select, "lookup/1", Q, Vs}),
-    {ok, Rows}.
+    Rows1 = [{B, K, [{Start, Finish, default}]} || {B, K} <- Rows],
+    {ok, Rows1}.
 
-lookup(Query, Groupings) ->
+lookup(Query, Start, Finish, Groupings, _Opts) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, Groupings),
     Rows = execute({select, "lookup/2", Q, Vs}),
-    {ok, Rows}.
+    Rows1 = [{{B, K, [{Start, Finish, default}]}, Gs} || {B, K, Gs} <- Rows],
+    {ok, Rows1}.
 
 lookup_tags(Query) ->
     {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
