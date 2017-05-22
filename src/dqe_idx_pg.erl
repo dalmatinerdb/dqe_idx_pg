@@ -15,6 +15,8 @@
 
 -import(dqe_idx_pg_utils, [decode_ns/1, hstore_to_tags/1, kvpair_to_tag/1]).
 
+-define(TIMEOUT, 5 * 1000).
+
 %%====================================================================
 %% API functions
 %%====================================================================
@@ -35,68 +37,70 @@ init() ->
 
 lookup(Query, Start, Finish, _Opts) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, []),
-    Rows = execute({select, "lookup/1", Q, Vs}),
+    {ok, Rows} = execute({select, "lookup/1", Q, Vs}),
     Rows1 = [{B, K, [{Start, Finish, default}]} || {B, K} <- Rows],
     {ok, Rows1}.
 
 lookup(Query, Start, Finish, Groupings, _Opts) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, Groupings),
-    Rows = execute({select, "lookup/2", Q, Vs}),
-    Rows1 = [{{B, K, [{Start, Finish, default}]}, Gs} || {B, K, Gs} <- Rows],
+    {ok, Rows} = execute({select, "lookup/2", Q, Vs}),
+    Rows1 = [{{Bucket, Key, [{Start, Finish, default}]},
+              get_values(Groupings, Dimensions)} ||
+                {Bucket, Key, Dimensions} <- Rows],
     {ok, Rows1}.
 
 lookup_tags(Query) ->
     {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
-    Rows = execute({select, "lookup_tags/1", Q, Vs}),
+    {ok, Rows} = execute({select, "lookup_tags/1", Q, Vs}),
     R = [kvpair_to_tag(KV) || KV <- Rows],
     {ok, R}.
 
 collections() ->
     {ok, Q, Vs} = query_builder:collections_query(),
-    Rows = execute({select, "collections/0", Q, Vs}),
+    {ok, Rows} = execute({select, "collections/0", Q, Vs}),
     {ok, strip_tpl(Rows)}.
 
 metrics(Collection) ->
     {ok, Q, Vs} = query_builder:metrics_query(Collection),
-    Rows = execute({select, "metrics/1", Q, Vs}),
+    {ok, Rows} = execute({select, "metrics/1", Q, Vs}),
     R = [M || {M} <- Rows],
     {ok, R}.
 
 metrics(Collection, Prefix, Depth) ->
     {ok, Q, Vs} = query_builder:metrics_query(Collection, Prefix, Depth),
-    Rows = execute({select, "metrics/3", Q, Vs}),
+    {ok, Rows} = execute({select, "metrics/3", Q, Vs}),
     R = [M || {M} <- Rows],
     {ok, R}.
 
 namespaces(Collection) ->
     {ok, Q, Vs} = query_builder:namespaces_query(Collection),
-    Rows = execute({select, "namespaces/1", Q, Vs}),
+    {ok, Rows} = execute({select, "namespaces/1", Q, Vs}),
     {ok, decode_ns_rows(Rows)}.
 
 namespaces(Collection, Metric) ->
     {ok, Q, Vs} = query_builder:namespaces_query(Collection, Metric),
-    Rows = execute({select, "namespaces/2", Q, Vs}),
+    {ok, Rows} = execute({select, "namespaces/2", Q, Vs}),
     {ok, decode_ns_rows(Rows)}.
 
 tags(Collection, Namespace) ->
     {ok, Q, Vs} = query_builder:tags_query(Collection, Namespace),
-    Rows = execute({select, "tags/2", Q, Vs}),
+    {ok, Rows} = execute({select, "tags/2", Q, Vs}),
     {ok, strip_tpl(Rows)}.
 
 tags(Collection, Metric, Namespace) ->
     {ok, Q, Vs} = query_builder:tags_query(Collection, Metric, Namespace),
-    Rows = execute({select, "tags/3", Q, Vs}),
+    {ok, Rows} = execute({select, "tags/3", Q, Vs}),
     {ok, strip_tpl(Rows)}.
 
 values(Collection, Namespace, Tag) ->
     {ok, Q, Vs} = query_builder:values_query(Collection, Namespace, Tag),
-    Rows = execute({select, "values/3", Q, Vs}),
+    {ok, Rows} = execute({select, "values/3", Q, Vs}),
     {ok, strip_tpl(Rows)}.
 
 values(Collection, Metric, Namespace, Tag) ->
     {ok, Q, Vs} = query_builder:values_query(Collection, Metric,
                                              Namespace, Tag),
-    Rows = execute({select, "values/4", Q, Vs}),
+    {ok, Rows} = execute({select, "values/4", Q, Vs}),
     {ok, strip_tpl(Rows)}.
 
 expand(Bucket, []) when is_binary(Bucket) ->
@@ -106,7 +110,7 @@ expand(Bucket, Globs) when
       is_binary(Bucket),
       is_list(Globs) ->
     {ok, Q, Vs} = query_builder:glob_query(Bucket, Globs),
-    Rows = execute({select, "expand/2", Q, Vs}),
+    {ok, Rows} = execute({select, "expand/2", Q, Vs}),
     Metrics = [M || {M} <- Rows],
     {ok, {Bucket, Metrics}}.
 
@@ -195,23 +199,51 @@ decode_ns_rows(Rows) ->
 
 execute({select, Name, Q, Vs}) ->
     T0 = erlang:system_time(),
-    {ok, _Cols, Rows} = pgapp:equery(Q, Vs),
-    lager:debug("[dqe_idx:pg:~p] Query took ~pms: ~s <- ~p",
-                [Name, tdelta(T0), Q, Vs]),
-    Rows;
+    case pgapp:equery(Q, Vs, timeout()) of
+        {ok, _Cols, Rows} ->
+            lager:debug("[dqe_idx:pg:~p] PG Query took ~pms: ~s <- ~p",
+                        [Name, tdelta(T0), Q, Vs]),
+            {ok, Rows};
+        E ->
+            report_error(Name, Q, Vs, T0, E)
+    end;
 execute({command, Name, Q, Vs}) ->
     T0 = erlang:system_time(),
-    case pgapp:equery(Q, Vs) of
+    case pgapp:equery(Q, Vs, timeout()) of
         {ok, Count} ->
-            lager:debug("[dqe_idx:pg:~p] Query took ~pms: ~s <- ~p",
+            lager:debug("[dqe_idx:pg:~p] PG Query took ~pms: ~s <- ~p",
                         [Name, tdelta(T0), Q, Vs]),
             {ok, Count, []};
         {ok, Count, _Cols, Rows} ->
-            lager:debug("[dqe_idx:pg:~p] Query took ~pms: ~s <- ~p",
+            lager:debug("[dqe_idx:pg:~p] PG Query took ~pms: ~s <- ~p",
                         [Name, tdelta(T0), Q, Vs]),
             {ok, Count, Rows};
         E ->
-            lager:info("[dqe_idx:pg:~p] Query failed after ~pms: ~s <- ~p:"
-                       " ~p", [Name, tdelta(T0), Q, Vs, E]),
-            E
+            report_error(Name, Q, Vs, T0, E)
     end.
+
+report_error(Name, Q, Vs, T0, E) ->
+    lager:info("[dqe_idx:pg:~p] PG Query failed after ~pms: ~s <- ~p:"
+               " ~p", [Name, tdelta(T0), Q, Vs, E]),
+    E.
+
+get_values(Grouping, {KVs}) when is_list(KVs) ->
+    Tags = [kvpair_to_tag(KV) || KV <- KVs],
+    get_values(Grouping, Tags, []).
+
+get_values([], _Tags, Acc) ->
+    lists:reverse(Acc);
+get_values([TagKey | Rest], Tags, Acc) ->
+    Value = get_tag_value(TagKey, Tags),
+    get_values(Rest, Tags, [Value | Acc]).
+
+get_tag_value({_, _}, []) ->
+    undefined;
+get_tag_value({Ns, Name}, [{TNs, TName, TValue} | _])
+  when Ns =:= TNs, Name =:= TName ->
+    TValue;
+get_tag_value(TagKey, [_ | Rest]) ->
+    get_tag_value(TagKey, Rest).
+
+timeout() ->
+    application:get_env(dqe_idx_pg, timeout, ?TIMEOUT).

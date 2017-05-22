@@ -5,8 +5,51 @@ Dalmatiner query engine indexer module for Postgres.
 
 Setting up the schema
 =====================
+
+Creating new database
+---------------------
+
+It is easiest to just create new database with up to date schema.
+
     $ createdb metric_metadata;
     $ psql metric_metadata < priv/schema.sql
+
+Migrating schema from version <= 0.3.6
+--------------------------------------
+
+After version 0.3.6 there was introduced significant schema change that require
+manual sql migration.
+
+You need to prepare database to use new column and copy data over. At this time
+you should stop any processes writing to database (you still can keep processes
+that read data running).
+
+    CREATE EXTENSION hstore;
+    ALTER TABLE metrics ADD COLUMN dimensions hstore;
+    UPDATE metrics AS m SET dimensions = (
+      SELECT hstore(array_agg(d.namespace || ':' || d.name), array_agg(d.value))
+        FROM dimensions AS d
+        WHERE d.metric_id = m.id
+        GROUP BY d.metric_id)
+      WHERE dimensions IS NULL;
+    ALTER INDEX metrics_idx RENAME TO metrics_collection_metric_bucket_key_idx;
+    CREATE INDEX CONCURRENTLY ON metrics USING btree(collection, akeys(dimensions));
+    CREATE INDEX CONCURRENTLY ON metrics USING btree(collection, metric, akeys(dimensions));
+    CREATE INDEX CONCURRENTLY ON metrics USING GIST (dimensions);
+
+Now you should upgrade all applications to most recent version. Start processes 
+writing to database as soon as they are upgraded. You will need also to restart
+all remaining processes, so they start using new version of library.
+
+Once you upgrade your code and make sure everything is working, you can clean up
+parts of old schema that is no longer used.
+
+    DROP TABLE dimensions;
+    ALTER TABLE metrics DROP COLUMN id;
+    DROP INDEX metrics_idx_collection;
+    DROP INDEX metrics_idx_collection_metric;
+    DROP INDEX metrics_idx_id_collection_metric;
+    DROP INDEX metrics_idx_metric;
 
 Build
 -----

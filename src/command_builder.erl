@@ -52,9 +52,10 @@ update_tags(Collection, Metric, Bucket, Key, Tags) ->
     Query = "UPDATE " ?MET_TABLE
             "  SET dimensions = dimensions || $5"
             "  WHERE collection = $1"
-            "    AND metric = $2 "
-            "    AND bucket = $3 "
-            "    AND key = $4",
+            "    AND metric = $2"
+            "    AND bucket = $3"
+            "    AND key = $4"
+            "  RETURNING dimensions",
     HStore = tags_to_hstore(Tags),
     Values = [Collection, Metric, Bucket, Key, HStore],
     {ok, Query, Values}.

@@ -11,8 +11,8 @@
 
 -include("dqe_idx_pg.hrl").
 
--define(NAMESPACE_PATTERN, "'^(([^:]|\\\\\\\\|\\\\:)+):'").
--define(NAME_PATTERN, "'^(?:[^:]|\\\\\\\\|\\\\:)+:(.*)$'").
+-define(NAMESPACE_PATTERN, "'^(([^:]|\\\\\\\\|\\\\:)*):'").
+-define(NAME_PATTERN, "'^(?:[^:]|\\\\\\\\|\\\\:)*:(.*)$'").
 
 %%====================================================================
 %% API
@@ -26,7 +26,7 @@ collections_query() ->
             "     WHERE collection > t.collection)"
             "   FROM t WHERE t.collection IS NOT NULL"
             "   )"
-            "SELECT collection FROM t",
+            "SELECT collection FROM t WHERE collection IS NOT NULL",
     Values = [],
     {ok, Query, Values}.
 
@@ -41,7 +41,7 @@ metrics_query(Collection)
             "     AND collection = $1)"
             "   FROM t WHERE t.metric IS NOT NULL"
             "   )"
-            "SELECT metric FROM t",
+            "SELECT metric FROM t WHERE metric IS NOT NULL",
     Values = [Collection],
     {ok, Query, Values}.
 
@@ -56,11 +56,12 @@ metrics_query(Collection, Prefix, Depth)
             "   UNION ALL"
             "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
             "     WHERE metric > t.metric"
-            "       AND metric[1:$5] <> t.metric[1:$4]"
+            "       AND metric[1:$3] = $2"
+            "       AND metric[1:$5] <> t.metric[1:$5]"
             "       AND collection = $1)"
-            "   FROM t WHERE t.metric[1:$3] = $2"
+            "   FROM t WHERE t.metric IS NOT NULL"
             "   )"
-            "SELECT metric[$4:$5] FROM t",
+            "SELECT metric[$4:$5] FROM t WHERE metric[1:$3] = $2",
     PrefLen = length(Prefix),
     From = PrefLen + 1,
     To = From + Depth - 1,
@@ -129,7 +130,7 @@ lookup_query(Lookup, []) ->
 lookup_query(Lookup, KeysToRead) ->
     {Condition, CVals} = lookup_condition(Lookup),
     I = length(CVals),
-    Query = ["SELECT bucket, key, avals(slice(dimensions, $", i2l(I + 1), "))"
+    Query = ["SELECT bucket, key, slice(dimensions, $", i2l(I + 1), ")"
              "  FROM metrics WHERE " | Condition],
     Keys = [encode_tag_key(Ns, Name) || {Ns, Name} <- KeysToRead],
     Values = CVals ++ [Keys],
@@ -181,9 +182,17 @@ keys_subquery_with_condition(Condition, Values) ->
             "SELECT DISTINCT unnest(keys) FROM t",
     {Query, Values}.
 
+lookup_condition({in, Collection, undefined}) ->
+    {"collection = $1", [Collection]};
 lookup_condition({in, Collection, Metric}) ->
     {"collection = $1 AND metric = $2",
      [Collection, Metric]};
+lookup_condition({in, Collection, undefined, Where}) ->
+    Criteria = lookup_criteria(Where),
+    {Condition, CValues} = criteria_condition(Criteria, 1),
+    Query = ["collection = $1 AND " | Condition],
+    Values = [Collection | CValues],
+    {Query, Values};
 lookup_condition({in, Collection, Metric, Where}) ->
     Criteria = lookup_criteria(Where),
     {Condition, CValues} = criteria_condition(Criteria, 2),
@@ -244,14 +253,10 @@ criteria_condition({Op, L, R}, I)
             end,
     {LCond, LVals} = criteria_condition(L, I),
     {RCond, RVals} = criteria_condition(R, I + length(LVals)),
-    %% if right part has further nested joining operators, we need brackets
-    RCond1 = case R of
-                 {Op, _, _} when Op =:= 'and'; Op =:= 'or' ->
-                     [$(, RCond, $)];
-                 _ ->
-                     RCond
-             end,
-    {[LCond, " ", OpStr, " ", RCond1], LVals ++ RVals};
+    %% It seems that postgres will always evaluate ANDs before ORs independent
+    %% of order, so we put brackets arroudn all logical operators to get right
+    %% evaluation order.
+    {["(", LCond, " ", OpStr, " ", RCond, ")"], LVals ++ RVals};
 criteria_condition({'not', Nested}, I) ->
     {Cond, Values} = criteria_condition(Nested, I),
     {["NOT " | Cond], Values}.
