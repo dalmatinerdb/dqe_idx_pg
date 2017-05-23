@@ -1,3 +1,5 @@
+[![Hex.pm](https://img.shields.io/hexpm/v/dqe_idx_pg.svg?maxAge=2592000)](https://hex.pm/packages/dqe_idx_pg)
+
 dqe_idx_pg
 ==========
 
