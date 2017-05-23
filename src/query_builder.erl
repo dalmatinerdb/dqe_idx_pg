@@ -406,7 +406,7 @@ o(A, B) ->
 
 orify_test() ->
     In = [c, c, c, c],
-    Expected = o(o(c,c),o(c,c)),
+    Expected = o(o(c, c), o(c, c)),
     Out =orify(In, []),
     ?assertEqual(Expected, Out).
 
@@ -547,10 +547,16 @@ and_simplify3_test() ->
                    {'or', c, c}}},
                  {'and', c1, c1}},
     Expected2 = {'or',
-                 {'or', {'and', {'and', c1, c1}, c}, {'and', {'and', c1, c1}, c}},
                  {'or',
-                  {'or', {'and', {'and', c1, c1}, c}, {'and', {'and', c1, c1}, c}},
-                  {'or', {'and', {'and', c1, c1}, c}, {'and', {'and', c1, c1}, c}}}},
+                  {'and', {'and', c1, c1}, c},
+                  {'and', {'and', c1, c1}, c}},
+                 {'or',
+                  {'or',
+                   {'and', {'and', c1, c1}, c},
+                   {'and', {'and', c1, c1}, c}},
+                  {'or',
+                   {'and', {'and', c1, c1}, c},
+                   {'and', {'and', c1, c1}, c}}}},
     Out1 = simplify(In),
     ?assertEqual(Expected1, Out1),
     Out2 = interalize_and(Out1),
