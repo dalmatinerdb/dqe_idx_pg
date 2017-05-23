@@ -7,6 +7,11 @@
          lookup_query/2, lookup_tags_query/1,
          glob_query/2]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-export([interalize_and/1, simplify/1, optimize_logic/1]).
+-endif.
+
 -import(dqe_idx_pg_utils, [encode_tag_key/2]).
 
 -include("dqe_idx_pg.hrl").
@@ -20,28 +25,28 @@
 
 collections_query() ->
     Query = "WITH RECURSIVE t AS ("
-            "   SELECT MIN(collection) AS collection FROM " ?MET_TABLE
-            "   UNION ALL"
-            "   SELECT (SELECT MIN(collection) FROM " ?MET_TABLE
-            "     WHERE collection > t.collection)"
-            "   FROM t WHERE t.collection IS NOT NULL"
-            "   )"
-            "SELECT collection FROM t WHERE collection IS NOT NULL",
+        "   SELECT MIN(collection) AS collection FROM " ?MET_TABLE
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(collection) FROM " ?MET_TABLE
+        "     WHERE collection > t.collection)"
+        "   FROM t WHERE t.collection IS NOT NULL"
+        "   )"
+        "SELECT collection FROM t WHERE collection IS NOT NULL",
     Values = [],
     {ok, Query, Values}.
 
 metrics_query(Collection)
   when is_binary(Collection) ->
     Query = "WITH RECURSIVE t AS ("
-            "   SELECT MIN(metric) AS metric FROM " ?MET_TABLE
-            "     WHERE collection = $1"
-            "   UNION ALL"
-            "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
-            "     WHERE metric > t.metric"
-            "     AND collection = $1)"
-            "   FROM t WHERE t.metric IS NOT NULL"
-            "   )"
-            "SELECT metric FROM t WHERE metric IS NOT NULL",
+        "   SELECT MIN(metric) AS metric FROM " ?MET_TABLE
+        "     WHERE collection = $1"
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
+        "     WHERE metric > t.metric"
+        "     AND collection = $1)"
+        "   FROM t WHERE t.metric IS NOT NULL"
+        "   )"
+        "SELECT metric FROM t WHERE metric IS NOT NULL",
     Values = [Collection],
     {ok, Query, Values}.
 
@@ -50,18 +55,18 @@ metrics_query(Collection, Prefix, Depth)
        is_list(Prefix),
        Depth > 0 ->
     Query = "WITH RECURSIVE t AS("
-            "   SELECT MIN(metric) AS metric FROM " ?MET_TABLE
-            "     WHERE collection = $1"
-            "       AND metric > $2"
-            "   UNION ALL"
-            "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
-            "     WHERE metric > t.metric"
-            "       AND metric[1:$3] = $2"
-            "       AND metric[1:$5] <> t.metric[1:$5]"
-            "       AND collection = $1)"
-            "   FROM t WHERE t.metric IS NOT NULL"
-            "   )"
-            "SELECT metric[$4:$5] FROM t WHERE metric[1:$3] = $2",
+        "   SELECT MIN(metric) AS metric FROM " ?MET_TABLE
+        "     WHERE collection = $1"
+        "       AND metric > $2"
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
+        "     WHERE metric > t.metric"
+        "       AND metric[1:$3] = $2"
+        "       AND metric[1:$5] <> t.metric[1:$5]"
+        "       AND collection = $1)"
+        "   FROM t WHERE t.metric IS NOT NULL"
+        "   )"
+        "SELECT metric[$4:$5] FROM t WHERE metric[1:$3] = $2",
     PrefLen = length(Prefix),
     From = PrefLen + 1,
     To = From + Depth - 1,
@@ -77,7 +82,7 @@ namespaces_query(Collection, Metric)
        is_list(Metric); Metric =:= undefined ->
     {SubQ, SubV} = keys_subquery(Collection, Metric),
     Query = "SELECT DISTINCT substring(key from " ?NAMESPACE_PATTERN ")"
-            "  FROM (" ++ SubQ ++ ") AS data(key)",
+        "  FROM (" ++ SubQ ++ ") AS data(key)",
     {ok, Query, SubV}.
 
 tags_query(Collection, Namespace)
@@ -104,8 +109,8 @@ values_query(Collection, Namespace, Tag)
        is_binary(Namespace),
        is_binary(Tag) ->
     Query = "SELECT DISTINCT dimensions -> $2 FROM " ?MET_TABLE
-            "  WHERE collection = $1"
-            "    AND dimensions ? $2",
+        "  WHERE collection = $1"
+        "    AND dimensions ? $2",
     Tag1 = encode_tag_key(Namespace, Tag),
     Values = [Collection, Tag1],
     {ok, Query, Values}.
@@ -116,9 +121,9 @@ values_query(Collection, Metric, Namespace, Tag)
        is_binary(Namespace),
        is_binary(Tag) ->
     Query = "SELECT DISTINCT dimensions -> $3 FROM " ?MET_TABLE
-            "  WHERE collection = $1"
-            "    AND metric = $2"
-            "    AND dimensions ? $3",
+        "  WHERE collection = $1"
+        "    AND metric = $2"
+        "    AND dimensions ? $3",
     Tag1 = encode_tag_key(Namespace, Tag),
     Values = [Collection, Metric, Tag1],
     {ok, Query, Values}.
@@ -171,15 +176,15 @@ keys_subquery(Collection, Metric) ->
 
 keys_subquery_with_condition(Condition, Values) ->
     Query = "WITH RECURSIVE t AS ("
-            "  SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
-            "    WHERE " ++ Condition ++
-            "  UNION"
-            "  SELECT (SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
-            "    WHERE akeys(dimensions) > t.keys"
-            "    AND " ++ Condition ++ ")"
-            "  FROM t"
-            "  )"
-            "SELECT DISTINCT unnest(keys) FROM t",
+        "  SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
+        "    WHERE " ++ Condition ++
+        "  UNION"
+        "  SELECT (SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
+        "    WHERE akeys(dimensions) > t.keys"
+        "    AND " ++ Condition ++ ")"
+        "  FROM t"
+        "  )"
+        "SELECT DISTINCT unnest(keys) FROM t",
     {Query, Values}.
 
 lookup_condition({in, Collection, undefined}) ->
@@ -200,6 +205,10 @@ lookup_condition({in, Collection, Metric, Where}) ->
     Values = [Collection, Metric | CValues],
     {Query, Values}.
 
+lookup_criteria(C) ->
+    %% We optimize the logic for hstore lookups before we build the lookup query
+    lookup_criteria_(optimize_logic(C)).
+
 %% Postgres hstore gist index is really quick to resolve intersection (AND)
 %% between conditions based on one of operator: '@>' (containing exact values),
 %% '?&' (containing all keys) and '?|' (containing any keys).
@@ -209,28 +218,22 @@ lookup_condition({in, Collection, Metric, Where}) ->
 %%
 %% First lets start from converting simple operators to something we can perform
 %% on hstores
-lookup_criteria({'=', Tag, Value}) ->
+lookup_criteria_({'=', Tag, Value}) ->
     {'@>', [{Tag, Value}]};
-lookup_criteria({'!=', Tag, Value}) ->
+lookup_criteria_({'!=', Tag, Value}) ->
     {'not', {'@>', [{Tag, Value}]}};
 %% containment checks connected by 'and' can be joined to one
-lookup_criteria({'and', L, R}) ->
-    case {lookup_criteria(L), lookup_criteria(R)} of
+lookup_criteria_({'and', L, R}) ->
+    case {lookup_criteria_(L), lookup_criteria_(R)} of
         {{'@>', LKVs}, {'@>', RKVs}} ->
             {'@>', LKVs ++ RKVs};
-        % or-distributive law -> A(B + C) = A.B + A.C
-        {{'@>', LKVs}, {'or', {'@>', OrLKVs}, {'@>', OrRKVs}}} ->
-            {'or', {'@>', OrLKVs ++ LKVs}, {'@>', OrRKVs ++ LKVs}};
-        % or-distributive law -> (B + C)A = B.A + C.A
-        {{'or', {'@>', OrLKVs}, {'@>', OrRKVs}}, {'@>', RKVs}} ->
-            {'or', {'@>', OrLKVs ++ RKVs}, {'@>', OrRKVs ++ RKVs}};
-        {L1, L2} ->
+       {L1, L2} ->
             {'and', L1, L2}
     end;
 %% With 'or' operators we can do much, maybe beside trying to optimize children
-lookup_criteria({'or', L, R}) ->
-    L1 = lookup_criteria(L),
-    R1 = lookup_criteria(R),
+lookup_criteria_({'or', L, R}) ->
+    L1 = lookup_criteria_(L),
+    R1 = lookup_criteria_(R),
     {'or', L1, R1}.
 %% We can do further improvements using '?&' and '?!' operators once we add
 %% support for tag presence only conditions.
@@ -306,3 +309,251 @@ escape_sql_pattern(<<C:8/integer, Rest/binary>>, Acc)
     escape_sql_pattern(Rest, <<Acc/binary, $~, C:8/integer>>);
 escape_sql_pattern(<<C:1/binary, Rest/binary>>, Acc) ->
     escape_sql_pattern(Rest, <<Acc/binary, C/binary>>).
+
+
+
+extrac_values({'or', C1, C2}, Acc) ->
+    extrac_values(C2, extrac_values(C1, Acc));
+extrac_values({'and', C1, C2}, Acc) ->
+    [{'and', simplify(C1), simplify(C2)} | Acc];
+extrac_values({'not', C1}, Acc) ->
+    [{'not', simplify(C1)} | Acc];
+extrac_values(C, Acc) ->
+    [C | Acc].
+
+simplify(T) ->
+    Flat = extrac_values(T, []),
+    orify(Flat, []).
+
+orify([C], []) ->
+    C;
+orify([C1, C2 | R], Acc) ->
+    orify(R, [{'or', C1, C2} | Acc]);
+orify([], Acc) ->
+    orify(Acc, []);
+orify([C], Acc) ->
+    {'or', C, orify(Acc, [])}.
+
+can_internaize({'not', _}) ->
+    false;
+can_internaize({'and', C1, C2}) ->
+    can_internaize(C1) andalso can_internaize(C2);
+can_internaize({'or', _, _}) ->
+    false;
+can_internaize(_) ->
+    true.
+
+interalize_and({'not', C1}) ->
+    {'not', interalize_and(C1)};
+
+interalize_and({'or', C1, C2}) ->
+    {'or', interalize_and(C1), interalize_and(C2)};
+
+interalize_and({'and', C1, C2}) ->
+    I1 = interalize_and(C1),
+    I2 = interalize_and(C2),
+    case {can_internaize(I1), can_internaize(I2)} of
+        {false, false} ->
+            {'and', I1, I2};
+        {true, true} ->
+            {'and', I1, I2};
+        {false, true} ->
+            internalize_and(I2, I1);
+        {true, false} ->
+            internalize_and(I1, I2)
+    end;
+interalize_and(C) ->
+    C.
+
+internalize_and(And, {'or', {'or', C11, C12}, {'or', C21, C22}}) ->
+    {'or',
+     {'or',
+      internalize_and(And, C11),
+      internalize_and(And, C12)},
+      {'or',
+       internalize_and(And, C21),
+       internalize_and(And, C22)}};
+internalize_and(And, {'or', C1, {'or', C21, C22}}) ->
+    {'or',
+     {'and', And, C1},
+     {'or',
+      internalize_and(And, C21),
+      internalize_and(And, C22)}};
+internalize_and(And, {'or', {'or', C11, C12}, C2}) ->
+    {'or',
+     {'or',
+      internalize_and(And, C11),
+      internalize_and(And, C12)},
+     {'and', And, C2}};
+
+internalize_and(And, {'or', C1, C2}) ->
+    {'or',
+     {'and', And, C1},
+     {'and', And, C2}};
+
+internalize_and(And, C) ->
+    {'and', And, C}.
+
+
+optimize_logic(Logic) ->
+    interalize_and(simplify(Logic)).
+
+
+-ifdef(TEST).
+
+o(A, B) ->
+    {'or', A, B}.
+
+orify_test() ->
+    In = [c, c, c, c],
+    Expected = o(o(c,c),o(c,c)),
+    Out =orify(In, []),
+    ?assertEqual(Expected, Out).
+
+values4_test() ->
+    In = {'or',
+          {'or',
+           {'or',
+            {'or',
+             c,
+             c},
+            c},
+           c},
+          c},
+  Expected = [c, c, c, c, c],
+  Out = extrac_values(In, []),
+  ?assertEqual(Expected, Out).
+
+balance_or3_test() ->
+    In = {'or',
+          {'or',
+           {'or',
+            c,
+            c},
+           c},
+          c},
+    Expected = {'or',
+                 {'or' , c, c},
+                 {'or',  c, c}},
+    Out = simplify(In),
+    ?assertEqual(Expected, Out).
+
+balance_or4_test() ->
+    In = {'or',
+          {'or',
+           {'or',
+            {'or',
+             c,
+             c},
+            c},
+           c},
+          c},
+    Expected = {'or',
+                c,
+                {'or',
+                 {'or', c, c},
+                 {'or', c, c}}},
+    Out = simplify(In),
+    ?assertEqual(Expected, Out).
+
+
+balance_or5_test() ->
+    In = {'or',
+          {'or',
+           {'or',
+            {'or',
+             {'or', c, c},
+             c},
+            c},
+           c},
+          c},
+    Expected = {'or',
+                {'or', c, c},
+                {'or',
+                 {'or' , c, c},
+                 {'or', c, c}}},
+    Out = simplify(In),
+    ?assertEqual(Expected, Out).
+
+
+and_simplify_test() ->
+    In = {'and',
+          {'or',
+           {'or',
+            {'or',
+             {'or',
+              {'or', c, c},
+              c},
+             c},
+            c},
+           c},
+          c1},
+    Expected1 = {'and',
+                {'or',
+                 {'or', c, c},
+                 {'or',
+                  {'or' , c, c},
+                  {'or', c, c}}},
+                c1},
+    Expected2 = {'or',
+                 {'or', {'and', c1, c}, {'and', c1, c}},
+                 {'or',
+                  {'or', {'and', c1, c}, {'and', c1, c}},
+                  {'or', {'and', c1, c}, {'and', c1, c}}}},
+    Out1 = simplify(In),
+    ?assertEqual(Expected1, Out1),
+    Out2 = interalize_and(Expected1),
+    ?assertEqual(Expected2, Out2) .
+
+and_simplify2_test() ->
+    In = {'and',
+          {'or',
+           {'or',
+            {'or',
+             {'or',
+              {'or', c, c},
+              c},
+             c},
+            c},
+           c},
+          {'or', c1, c1}},
+    Expected = {'and',
+                {'or',
+                 {'or', c, c},
+                 {'or',
+                  {'or' , c, c},
+                  {'or', c, c}}},
+                {'or', c1, c1}},
+    Out = simplify(In),
+    ?assertEqual(Expected, Out).
+
+and_simplify3_test() ->
+    In = {'and',
+          {'or',
+           {'or',
+            {'or',
+             {'or',
+              {'or', c, c},
+              c},
+             c},
+            c},
+           c},
+          {'and', c1, c1}},
+    Expected1 = {'and',
+                 {'or',
+                  {'or', c, c},
+                  {'or',
+                   {'or' , c, c},
+                   {'or', c, c}}},
+                 {'and', c1, c1}},
+    Expected2 = {'or',
+                 {'or', {'and', {'and', c1, c1}, c}, {'and', {'and', c1, c1}, c}},
+                 {'or',
+                  {'or', {'and', {'and', c1, c1}, c}, {'and', {'and', c1, c1}, c}},
+                  {'or', {'and', {'and', c1, c1}, c}, {'and', {'and', c1, c1}, c}}}},
+    Out1 = simplify(In),
+    ?assertEqual(Expected1, Out1),
+    Out2 = interalize_and(Out1),
+    ?assertEqual(Expected2, Out2).
+
+-endif.
