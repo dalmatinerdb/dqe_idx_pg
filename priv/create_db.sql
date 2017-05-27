@@ -1,0 +1,4 @@
+CREATE USER ddb WITH PASSWORD 'ddb';
+CREATE DATABASE metric_metadata OWNER ddb;
+GRANT ALL ON DATABASE metric_metadata TO ddb;
+ALTER ROLE ddb WITH SUPERUSER;

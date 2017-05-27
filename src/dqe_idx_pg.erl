@@ -33,7 +33,8 @@ init() ->
             {ok, P} = application:get_env(dqe_idx_pg, port),
             {H, P}
         end,
-    pgapp:connect([{host, Host}, {port, Port} | Opts1]).
+    pgapp:connect([{host, Host}, {port, Port} | Opts1]),
+    sql_migration:run(dqe_idx_pg).
 
 lookup(Query, Start, Finish, _Opts) ->
     {ok, Q, Vs} = query_builder:lookup_query(Query, []),

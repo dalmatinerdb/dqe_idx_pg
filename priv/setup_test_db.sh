@@ -8,4 +8,4 @@ fi
 pg_ctl initdb -s -D datadir/
 pg_ctl -D datadir/ -o "-F -p 10433" start -w > /dev/null 2>&1
 createdb -p 10433 metric_metadata
-psql -d metric_metadata -p 10433 -f priv/schema.sql
+psql -d metric_metadata -p 10433 -f priv/create_db.sql

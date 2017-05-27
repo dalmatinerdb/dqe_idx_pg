@@ -6,12 +6,14 @@
 
 -define(HOST, "localhost").
 -define(PORT, 10433).
+-define(DB, "metric_metadata").
+-define(USER, "ddb").
 
 with_connection(F) ->
-    with_connection(F, "ddb", []).
+    with_connection(F, ?USER, []).
 
 with_connection(F, Username, Args) ->
-    Args2 = [{port, ?PORT}, {database, "metric_metadata"} | Args],
+    Args2 = [{port, ?PORT}, {database, ?DB} | Args],
     {ok, C} = epgsql:connect(?HOST, Username, Args2),
     try
         F(C)
@@ -22,6 +24,16 @@ with_connection(F, Username, Args) ->
 %%%-------------------------------------------------------------------
 %%% Generators
 %%%-------------------------------------------------------------------
+
+setup() ->
+    application:ensure_all_started(dqe_idx_pg),
+    pgapp:connect([{host, ?HOST}, {port, ?PORT},
+                   {database, ?DB},
+                   {username, ?USER}]),
+    sql_migration:run(dqe_idx_pg),
+    fun () ->
+            ok
+    end.
 
 str() ->
     list(choose($a, $z)).
