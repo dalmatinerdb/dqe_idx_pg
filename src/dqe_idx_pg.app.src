@@ -2,7 +2,7 @@
              [{description,"Postgresql backend for DFE indexinge"},
               {vsn, git},
               {registered,[]},
-              {applications,[kernel,stdlib,dqe_idx,pgapp,lager, sql_migration]},
+              {applications,[kernel,stdlib,dqe_idx,pgapp,lager, sqlmig]},
               {env,[]},
               {modules,[]},
               {maintainers,["Heinz N. Gies"]},
