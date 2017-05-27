@@ -15,60 +15,66 @@
 %%%-------------------------------------------------------------------
 
 prop_add_metric() ->
-    ?FORALL(GenData, {collection(), metric(), bucket(), key(),
-                      non_empty_list(tag())},
-        begin
-            {Collection, Metric, Bucket, Key, Ts} = GenData,
-            Fun = fun(C) ->
-                {ok, Q, _V} = ?M:add_metric(Collection, Metric, Bucket, Key, Ts),
-                {Res, _} = epgsql:parse(C, Q),
-                Res
-            end,
-            ok =:= with_connection(Fun)
-        end
-    ).
+    ?SETUP(
+       fun eqc_helper:setup/0,
+       ?FORALL(GenData, {collection(), metric(), bucket(), key(),
+                         non_empty_list(tag())},
+               begin
+                   {Collection, Metric, Bucket, Key, Ts} = GenData,
+                   Fun = fun(C) ->
+                                 {ok, Q, _V} = ?M:add_metric(Collection, Metric, Bucket, Key, Ts),
+                                 {Res, _} = epgsql:parse(C, Q),
+                                 Res
+                         end,
+                   ok =:= with_connection(Fun)
+               end
+              )).
 
 prop_delete_metric() ->
-    ?FORALL(GenData, {collection(), metric(), bucket(), key()},
-        begin
-            {Collection, Metric, Bucket, Key} = GenData,
-            Fun = fun(C) ->
-                {ok, Q, _V} = ?M:delete_metric(Collection, Metric, Bucket, Key),
-                {Res, _} = epgsql:parse(C, Q),
-                Res
-            end,
-            ok =:= with_connection(Fun)
-        end
-    ).
+    ?SETUP(
+       fun eqc_helper:setup/0,
+       ?FORALL(GenData, {collection(), metric(), bucket(), key()},
+               begin
+                   {Collection, Metric, Bucket, Key} = GenData,
+                   Fun = fun(C) ->
+                                 {ok, Q, _V} = ?M:delete_metric(Collection, Metric, Bucket, Key),
+                                 {Res, _} = epgsql:parse(C, Q),
+                                 Res
+                         end,
+                   ok =:= with_connection(Fun)
+               end
+              )).
 
 prop_update_tags() ->
-    ?FORALL(GenData, {collection(), metric(), bucket(), key(),
-                      non_empty_list(tag())},
-        begin
-            {Collection, Metric, Bucket, Key, Tags} = GenData,
-            Fun = fun(C) ->
-                {ok, Q, _V} = ?M:update_tags(Collection, Metric,
-                                             Bucket, Key, Tags),
-                {Res, _} = epgsql:parse(C, Q),
-                Res
-            end,
-            ok =:= with_connection(Fun)
-        end
-    ).
+    ?SETUP(
+       fun eqc_helper:setup/0,
+       ?FORALL(GenData, {collection(), metric(), bucket(), key(),
+                         non_empty_list(tag())},
+               begin
+                   {Collection, Metric, Bucket, Key, Tags} = GenData,
+                   Fun = fun(C) ->
+                                 {ok, Q, _V} = ?M:update_tags(Collection, Metric,
+                                                              Bucket, Key, Tags),
+                                 {Res, _} = epgsql:parse(C, Q),
+                                 Res
+                         end,
+                   ok =:= with_connection(Fun)
+               end
+              )).
 
 prop_delete_tags() ->
-    ?FORALL(GenData, {collection(), metric(), bucket(), key(),
-                      non_empty_list(tag())},
-        begin
-            {Collection, Metric, Bucket, Key, Tags} = GenData,
-            Fun = fun(C) ->
-                {ok, Q, _V} = ?M:delete_tags(Collection, Metric,
-                                            Bucket, Key, Tags),
-                {Res, _} = epgsql:parse(C, Q),
-                Res
-            end,
-            ok =:= with_connection(Fun)
-        end
-    ).
-
-
+    ?SETUP(
+       fun eqc_helper:setup/0,
+       ?FORALL(GenData, {collection(), metric(), bucket(), key(),
+                         non_empty_list(tag())},
+               begin
+                   {Collection, Metric, Bucket, Key, Tags} = GenData,
+                   Fun = fun(C) ->
+                                 {ok, Q, _V} = ?M:delete_tags(Collection, Metric,
+                                                              Bucket, Key, Tags),
+                                 {Res, _} = epgsql:parse(C, Q),
+                                 Res
+                         end,
+                   ok =:= with_connection(Fun)
+               end
+              )).
