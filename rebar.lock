@@ -8,7 +8,7 @@
  {<<"lager">>,{pkg,<<"lager">>,<<"3.2.4">>},0},
  {<<"pgapp">>,{pkg,<<"pgapp">>,<<"0.0.2">>},0},
  {<<"poolboy">>,{pkg,<<"poolboy">>,<<"1.5.1">>},1},
- {<<"sqlmig">>,{pkg,<<"sqlmig">>,<<"0.1.4">>},0}]}.
+ {<<"sqlmig">>,{pkg,<<"sqlmig">>,<<"0.1.5">>},0}]}.
 [
 {pkg_hash,[
  {<<"epgsql">>, <<"974A578340E52012CBAB820CE756E7ED1DF1BAF0110C59A6753D8337A2CF9454">>},
@@ -16,5 +16,5 @@
  {<<"lager">>, <<"A6DEB74DAE7927F46BD13255268308EF03EB206EC784A94EAF7C1C0F3B811615">>},
  {<<"pgapp">>, <<"3E104BB777C8455D8B26D1538B67ABE0188EE97B1DF973FD936C2204CB316196">>},
  {<<"poolboy">>, <<"6B46163901CFD0A1B43D692657ED9D7E599853B3B21B95AE5AE0A777CF9B6CA8">>},
- {<<"sqlmig">>, <<"73163B3842A81EEBBF78A38D5FA03D2430863AE79DACCF588CD9EFFD48470A6C">>}]}
+ {<<"sqlmig">>, <<"8208D222A9335C1B1171F4FD1CE4150CF28B1FDF37CA9A66715AC434ED9B9AF4">>}]}
 ].
