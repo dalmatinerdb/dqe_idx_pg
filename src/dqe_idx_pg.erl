@@ -30,13 +30,13 @@ init() ->
     Opts1 = [{O, application:get_env(dqe_idx_pg, O, undefined)}
              || O <- Opts],
     {Host, Port} = case application:get_env(dqe_idx_pg, server) of
-        {ok, {H, P}} ->
-            {H, P};
-        _ ->
-            {ok, H} = application:get_env(dqe_idx_pg, host),
-            {ok, P} = application:get_env(dqe_idx_pg, port),
-            {H, P}
-        end,
+                       {ok, {H, P}} ->
+                           {H, P};
+                       _ ->
+                           {ok, H} = application:get_env(dqe_idx_pg, host),
+                           {ok, P} = application:get_env(dqe_idx_pg, port),
+                           {H, P}
+                   end,
     pgapp:connect([{host, Host}, {port, Port} | Opts1]),
     sql_migration:run(dqe_idx_pg).
 
@@ -137,7 +137,7 @@ add(Collection, Metric, Bucket, Key, Timestamp) ->
           dqe_idx:key(),
           dqe_idx:timestamp(),
           dqe_idx:tags()) -> ok | {ok, row_id()} | sql_error().
-%% TODO: handle timestamp 
+%% TODO: handle timestamp
 add(Collection, Metric, Bucket, Key, _Timestamp, Tags) ->
     {ok, Q, Vs} = command_builder:add_metric(
                     Collection, Metric, Bucket, Key, Tags),
