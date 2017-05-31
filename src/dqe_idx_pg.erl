@@ -9,11 +9,15 @@
          lookup/4, lookup/5, lookup_tags/1,
          collections/0, metrics/1, metrics/3, namespaces/1, namespaces/2,
          tags/2, tags/3, values/3, values/4, expand/2,
-         add/4, add/5, update/5,
+         add/5, add/6, update/6, touch/1,
          delete/4, delete/5
         ]).
 
 -import(dqe_idx_pg_utils, [decode_ns/1, hstore_to_tags/1, kvpair_to_tag/1]).
+
+-type row_id()  :: pos_integer().
+-type sql_error() :: {'error', term()}.
+-type not_found() :: {'error', not_found}.
 
 -define(TIMEOUT, 5 * 1000).
 
@@ -115,19 +119,26 @@ expand(Bucket, Globs) when
     Metrics = [M || {M} <- Rows],
     {ok, {Bucket, Metrics}}.
 
--spec add(collection(),
-          metric(),
-          bucket(),
-          key()) -> ok | {ok, row_id()} | sql_error().
-add(Collection, Metric, Bucket, Key) ->
-    add(Collection, Metric, Bucket, Key, []).
 
--spec add(collection(),
-          metric(),
-          bucket(),
-          key(),
-          [tag()]) -> ok | {ok, row_id()} | sql_error().
-add(Collection, Metric, Bucket, Key, Tags) ->
+touch(_Data) ->
+    ok.
+
+-spec add(dqe_idx:collection(),
+          dqe_idx:metric(),
+          dqe_idx:bucket(),
+          dqe_idx:key(),
+          dqe_idx:timestamp()) -> ok | {ok, row_id()} | sql_error().
+add(Collection, Metric, Bucket, Key, Timestamp) ->
+    add(Collection, Metric, Bucket, Key, Timestamp, []).
+
+-spec add(dqe_idx:collection(),
+          dqe_idx:metric(),
+          dqe_idx:bucket(),
+          dqe_idx:key(),
+          dqe_idx:timestamp(),
+          dqe_idx:tags()) -> ok | {ok, row_id()} | sql_error().
+%% TODO: handle timestamp 
+add(Collection, Metric, Bucket, Key, _Timestamp, Tags) ->
     {ok, Q, Vs} = command_builder:add_metric(
                     Collection, Metric, Bucket, Key, Tags),
     case execute({command, "add/5", Q, Vs}) of
@@ -139,12 +150,13 @@ add(Collection, Metric, Bucket, Key, Tags) ->
             EAdd
     end.
 
--spec update(collection(),
-             metric(),
-             bucket(),
-             key(),
-             [tag()]) -> {ok, row_id()} | not_found() | sql_error().
-update(Collection, Metric, Bucket, Key, NVs) ->
+-spec update(dqe_idx:collection(),
+             dqe_idx:metric(),
+             dqe_idx:bucket(),
+             dqe_idx:key(),
+             dqe_idx:timestamp(),
+             dqe_idx:tags()) -> {ok, row_id()} | not_found() | sql_error().
+update(Collection, Metric, Bucket, Key, _Timestamp, NVs) ->
     {ok, Q, Vs} = command_builder:update_tags(
                     Collection, Metric, Bucket, Key, NVs),
     case execute({command, "update/5", Q, Vs}) of
@@ -156,10 +168,10 @@ update(Collection, Metric, Bucket, Key, NVs) ->
             EAdd
     end.
 
--spec delete(collection(),
-             metric(),
-             bucket(),
-             key()) -> ok | sql_error().
+-spec delete(dqe_idx:collection(),
+             dqe_idx:metric(),
+             dqe_idx:bucket(),
+             dqe_idx:key()) -> ok | sql_error().
 delete(Collection, Metric, Bucket, Key) ->
     {ok, Q, Vs} = command_builder:delete_metric(Collection, Metric,
                                                 Bucket, Key),
@@ -170,11 +182,11 @@ delete(Collection, Metric, Bucket, Key) ->
             E
     end.
 
--spec delete(collection(),
-             metric(),
-             bucket(),
-             key(),
-             [{tag_ns(), tag_name()}]) -> ok | sql_error().
+-spec delete(dqe_idx:collection(),
+             dqe_idx:metric(),
+             dqe_idx:bucket(),
+             dqe_idx:key(),
+             [dqe_idx:tag()]) -> ok | sql_error().
 delete(Collection, Metric, Bucket, Key, Tags) ->
     {ok, Q, Vs} = command_builder:delete_tags(
                     Collection, Metric, Bucket, Key, Tags),
