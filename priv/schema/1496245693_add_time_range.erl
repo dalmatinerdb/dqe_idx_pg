@@ -10,7 +10,7 @@ upgrade(Pool) ->
     {ok, _, _} = pgapp:squery(
                    Pool,
                    "CREATE INDEX metrics_time_range_idx"
-                   " ON test USING gist (time_range)"),
+                   " ON metrics USING gist (time_range)"),
     ok.
 
 downgrade(Pool) ->
