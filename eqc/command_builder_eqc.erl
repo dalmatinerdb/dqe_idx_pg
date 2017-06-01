@@ -10,6 +10,8 @@
 
 -define(M, command_builder).
 
+timestamp() ->
+    oneof([now, undefined, nat()]).
 %%%-------------------------------------------------------------------
 %%% Properties
 %%%-------------------------------------------------------------------
@@ -17,18 +19,18 @@
 prop_add_metric() ->
     ?SETUP(
        fun eqc_helper:setup/0,
-       ?FORALL(GenData, {collection(), metric(), bucket(), key(),
-                         non_empty_list(tag())},
-               begin
-                   {Collection, Metric, Bucket, Key, Ts} = GenData,
-                   Fun = fun(C) ->
-                                 {ok, Q, _V} = ?M:add_metric(Collection, Metric, Bucket, Key, Ts),
-                                 {Res, _} = epgsql:parse(C, Q),
-                                 Res
-                         end,
-                   ok =:= with_connection(Fun)
-               end
-              )).
+       ?FORALL(
+          {Collection, Metric, Bucket, Key, Time, Ts},
+          {collection(), metric(), bucket(), key(), timestamp(), non_empty_list(tag())},
+          begin
+              Fun = fun(C) ->
+                            {ok, Q, _V} = ?M:add_metric(Collection, Metric, Bucket, Key, Time, Ts),
+                            {Res, _} = epgsql:parse(C, Q),
+                            Res
+                    end,
+              ok =:= with_connection(Fun)
+          end
+         )).
 
 prop_delete_metric() ->
     ?SETUP(

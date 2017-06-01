@@ -4,7 +4,7 @@
          namespaces_query/1, namespaces_query/2,
          tags_query/2, tags_query/3,
          values_query/3, values_query/4,
-         lookup_query/2, lookup_tags_query/1,
+         lookup_query/4, lookup_tags_query/1,
          glob_query/2]).
 
 -ifdef(TEST).
@@ -12,9 +12,7 @@
 -export([interalize_and/1, simplify/1, optimize_logic/1]).
 -endif.
 
--import(dqe_idx_pg_utils, [encode_tag_key/2]).
-
--include("dqe_idx_pg.hrl").
+-include_lib("dqe_idx_pg/include/dqe_idx_pg.hrl").
 
 -define(NAMESPACE_PATTERN, "'^(([^:]|\\\\\\\\|\\\\:)*):'").
 -define(NAME_PATTERN, "'^(?:[^:]|\\\\\\\\|\\\\:)*:(.*)$'").
@@ -80,9 +78,9 @@ namespaces_query(Collection)
 namespaces_query(Collection, Metric)
   when is_binary(Collection),
        is_list(Metric); Metric =:= undefined ->
-    {SubQ, SubV} = keys_subquery(Collection, Metric),
-    Query = "SELECT DISTINCT substring(key from " ?NAMESPACE_PATTERN ")"
-        "  FROM (" ++ SubQ ++ ") AS data(key)",
+    {SubQ, SubV} = keys_subquery(Collection, Metric, 1),
+    Query = ["SELECT DISTINCT substring(key from " ?NAMESPACE_PATTERN ")"
+             "  FROM (", SubQ, ") AS data(key)"],
     {ok, Query, SubV}.
 
 tags_query(Collection, Namespace)
@@ -94,14 +92,13 @@ tags_query(Collection, Metric, Namespace)
   when is_binary(Collection),
        is_list(Metric); Metric =:= undefined,
        is_binary(Namespace)  ->
-    {SubQ, SubV} = keys_subquery(Collection, Metric),
-    I = length(SubV),
+    {SubQ, SubV} = keys_subquery(Collection, Metric, 2),
     Query = ["SELECT DISTINCT substring(key from " ?NAME_PATTERN ")"
              "  FROM (", SubQ, ") AS data(key)"
-             "  WHERE key LIKE $" ++ i2l(I + 1) ++ " ESCAPE '~'"],
+             "  WHERE key LIKE $1 ESCAPE '~'"],
     Ns1 = escape_sql_pattern(Namespace, <<>>),
-    Ns2 = encode_tag_key(Ns1, <<"%">>),
-    Values = SubV ++ [Ns2],
+    Ns2 = dqe_idx_pg_utils:encode_tag_key(Ns1, <<"%">>),
+    Values = [Ns2 | SubV],
     {ok, Query, Values}.
 
 values_query(Collection, Namespace, Tag)
@@ -111,7 +108,7 @@ values_query(Collection, Namespace, Tag)
     Query = "SELECT DISTINCT dimensions -> $2 FROM " ?MET_TABLE
         "  WHERE collection = $1"
         "    AND dimensions ? $2",
-    Tag1 = encode_tag_key(Namespace, Tag),
+    Tag1 = dqe_idx_pg_utils:encode_tag_key(Namespace, Tag),
     Values = [Collection, Tag1],
     {ok, Query, Values}.
 
@@ -124,25 +121,35 @@ values_query(Collection, Metric, Namespace, Tag)
         "  WHERE collection = $1"
         "    AND metric = $2"
         "    AND dimensions ? $3",
-    Tag1 = encode_tag_key(Namespace, Tag),
+    Tag1 = dqe_idx_pg_utils:encode_tag_key(Namespace, Tag),
     Values = [Collection, Metric, Tag1],
     {ok, Query, Values}.
 
-lookup_query(Lookup, []) ->
-    {Condition, CVals} = lookup_condition(Lookup),
-    Query = ["SELECT bucket, key FROM metrics WHERE " | Condition],
-    {ok, Query, CVals};
-lookup_query(Lookup, KeysToRead) ->
-    {Condition, CVals} = lookup_condition(Lookup),
-    I = length(CVals),
-    Query = ["SELECT bucket, key, slice(dimensions, $", i2l(I + 1), ")"
-             "  FROM metrics WHERE " | Condition],
-    Keys = [encode_tag_key(Ns, Name) || {Ns, Name} <- KeysToRead],
-    Values = CVals ++ [Keys],
+lookup_query(Lookup, Start, Finish, []) ->
+    {Condition, CVals} = lookup_condition(Lookup, 3),
+    Query = ["SELECT bucket, key, lower(time_range), upper(time_range) "
+             "FROM metrics WHERE time_range && tsrange($1, $2) AND "
+             | Condition],
+    Values = [dqe_idx_pg_utils:ms_to_date(Start),
+              dqe_idx_pg_utils:ms_to_date(Finish)
+              | CVals],
+    {ok, Query, Values};
+
+lookup_query(Lookup, Start, Finish, KeysToRead) ->
+    {Condition, CVals} = lookup_condition(Lookup, 4),
+    Query = ["SELECT bucket, key, lower(time_range), upper(time_range), "
+             "slice(dimensions, $1)  FROM metrics WHERE "
+             "time_range && tsrange($2, $3) AND " | Condition],
+    Keys = [dqe_idx_pg_utils:encode_tag_key(Ns, Name)
+            || {Ns, Name} <- KeysToRead],
+    Values = [Keys,
+              dqe_idx_pg_utils:ms_to_date(Start),
+              dqe_idx_pg_utils:ms_to_date(Finish)
+              | CVals],
     {ok, Query, Values}.
 
 lookup_tags_query(Lookup) ->
-    {Condition, CVals} = lookup_condition(Lookup),
+    {Condition, CVals} = lookup_condition(Lookup, 1),
     Query = ["SELECT (kv).key, (kv).value"
              "  FROM ("
              "    SELECT DISTINCT each(dimensions)"
@@ -152,56 +159,57 @@ lookup_tags_query(Lookup) ->
 
 glob_query(Bucket, Globs) ->
     Criteria = criteria_from_globs(Globs),
-    {Condition, CVals} = criteria_condition(Criteria, 0),
-    I = length (CVals),
+    {Condition, CVals, _NextI} = criteria_condition(Criteria, 2),
     Query = ["SELECT DISTINCT key "
              "  FROM " ?MET_TABLE " "
              "  WHERE ", Condition,
-             "    AND bucket = $", i2l(I + 1)],
-    Values = CVals ++ [Bucket],
+             "    AND bucket = $1"],
+    Values = [Bucket | CVals],
     {ok, Query, Values}.
 
 %%====================================================================
 %% Internal functions
 %%====================================================================
 
-keys_subquery(Collection, undefined) ->
-    Condition = "collection = $1",
+keys_subquery(Collection, undefined, N) ->
+    Condition = ["collection = $", i2l(N)],
     Values = [Collection],
     keys_subquery_with_condition(Condition, Values);
-keys_subquery(Collection, Metric) ->
-    Condition = "collection = $1 AND metric = $2",
+keys_subquery(Collection, Metric, N) ->
+    Condition = ["collection = $", i2l(N), " AND metric = $", i2l(N + 1)],
     Values = [Collection, Metric],
     keys_subquery_with_condition(Condition, Values).
 
 keys_subquery_with_condition(Condition, Values) ->
-    Query = "WITH RECURSIVE t AS ("
-        "  SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
-        "    WHERE " ++ Condition ++
-        "  UNION"
-        "  SELECT (SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
-        "    WHERE akeys(dimensions) > t.keys"
-        "    AND " ++ Condition ++ ")"
-        "  FROM t"
-        "  )"
-        "SELECT DISTINCT unnest(keys) FROM t",
+    Query = ["WITH RECURSIVE t AS ("
+             "  SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
+             "    WHERE ", Condition,
+             "  UNION"
+             "  SELECT (SELECT MIN(akeys(dimensions)) AS keys FROM " ?MET_TABLE
+             "    WHERE akeys(dimensions) > t.keys"
+             "    AND ", Condition, ")"
+             "  FROM t"
+             "  )"
+             "SELECT DISTINCT unnest(keys) FROM t"],
     {Query, Values}.
 
-lookup_condition({in, Collection, undefined}) ->
-    {"collection = $1", [Collection]};
-lookup_condition({in, Collection, Metric}) ->
-    {"collection = $1 AND metric = $2",
+lookup_condition({in, Collection, undefined}, N) ->
+    {["collection = $", i2l(N)], [Collection]};
+lookup_condition({in, Collection, Metric}, N) ->
+    {["collection = $", i2l(N),
+      " AND metric = $", i2l(N + 1)],
      [Collection, Metric]};
-lookup_condition({in, Collection, undefined, Where}) ->
+lookup_condition({in, Collection, undefined, Where}, N) ->
     Criteria = lookup_criteria(Where),
-    {Condition, CValues} = criteria_condition(Criteria, 1),
-    Query = ["collection = $1 AND " | Condition],
+    {Condition, CValues, _NextI} = criteria_condition(Criteria, N + 1),
+    Query = ["collection = $", i2l(N), " AND " | Condition],
     Values = [Collection | CValues],
     {Query, Values};
-lookup_condition({in, Collection, Metric, Where}) ->
+lookup_condition({in, Collection, Metric, Where}, N) ->
     Criteria = lookup_criteria(Where),
-    {Condition, CValues} = criteria_condition(Criteria, 2),
-    Query = ["collection = $1 AND metric = $2 AND " | Condition],
+    {Condition, CValues, _NextI} = criteria_condition(Criteria, N + 2),
+    Query = ["collection = $", i2l(N), " AND metric = $", i2l(N + 1), " AND "
+             | Condition],
     Values = [Collection, Metric | CValues],
     {Query, Values}.
 
@@ -240,19 +248,19 @@ lookup_criteria_({'or', L, R}) ->
 
 %% special, optimized operators
 criteria_condition({'@>', Parts}, I)  ->
-    Cond = ["dimensions @> $", i2l(I+1)],
+    Cond = ["dimensions @> $", i2l(I)],
     HStore = {[{encode_tag(T), V} || {T, V} <- Parts]},
-    {Cond, [HStore]};
+    {Cond, [HStore], I + 1};
 criteria_condition({Op, Parts}, I)
   when Op =:= '?&'; Op =:= '?|' ->
     OpStr = case Op of
                 '?&' -> "?&";
                 '?|' -> "?|"
             end,
-    Cond = ["dimensions ", OpStr, " $", i2l(I+1)],
+    Cond = ["dimensions ", OpStr, " $", i2l(I)],
     {Tags, _} = lists:unzip(Parts),
     Keys = lists:map(fun encode_tag/1, Tags),
-    {Cond, [Keys]};
+    {Cond, [Keys], I + 1};
 %% joining operators
 criteria_condition({Op, L, R}, I)
   when Op =:= 'and'; Op =:= 'or' ->
@@ -260,15 +268,15 @@ criteria_condition({Op, L, R}, I)
                 'and' -> "AND";
                 'or' -> "OR"
             end,
-    {LCond, LVals} = criteria_condition(L, I),
-    {RCond, RVals} = criteria_condition(R, I + length(LVals)),
+    {LCond, LVals, NextI} = criteria_condition(L, I),
+    {RCond, RVals, NextI1} = criteria_condition(R, NextI),
     %% It seems that postgres will always evaluate ANDs before ORs independent
     %% of order, so we put brackets arroudn all logical operators to get right
     %% evaluation order.
-    {["(", LCond, " ", OpStr, " ", RCond, ")"], LVals ++ RVals};
+    {["(", LCond, " ", OpStr, " ", RCond, ")"], LVals ++ RVals, NextI1};
 criteria_condition({'not', Nested}, I) ->
-    {Cond, Values} = criteria_condition(Nested, I),
-    {["NOT " | Cond], Values}.
+    {Cond, Values, NextI} = criteria_condition(Nested, I),
+    {["NOT " | Cond], Values, NextI}.
 
 criteria_from_globs(Globs) ->
     criteria_from_globs(Globs, []).
@@ -300,7 +308,7 @@ i2l(I) ->
     integer_to_list(I).
 
 encode_tag({tag, Ns, Name}) ->
-    encode_tag_key(Ns, Name).
+    dqe_idx_pg_utils:encode_tag_key(Ns, Name).
 
 escape_sql_pattern(<<>>, Acc) ->
     Acc;

@@ -1,7 +1,7 @@
 -module(dqe_idx_pg).
 -behaviour(dqe_idx).
 
--include("dqe_idx_pg.hrl").
+-include_lib("dqe_idx_pg/include/dqe_idx_pg.hrl").
 
 %% API exports
 -export([
@@ -9,13 +9,24 @@
          lookup/4, lookup/5, lookup_tags/1,
          collections/0, metrics/1, metrics/3, namespaces/1, namespaces/2,
          tags/2, tags/3, values/3, values/4, expand/2,
-         add/4, add/5, update/5,
+         add/5, add/6, update/5, touch/1,
          delete/4, delete/5
         ]).
 
--import(dqe_idx_pg_utils, [decode_ns/1, hstore_to_tags/1, kvpair_to_tag/1]).
+-export_type([sql_stmt/0]).
+
+-type row_id()  :: pos_integer().
+-type sql_error() :: {'error', term()}.
+-type not_found() :: {'error', not_found}.
+-type sql_stmt() :: {ok, iolist(), [term()]}.
+
 
 -define(TIMEOUT, 5 * 1000).
+%% 1 hour in milliseconds
+
+-define(HOUR, 3600000).
+-define(GRACE, ?HOUR).
+-define(S1970, 62167219200).
 
 %%====================================================================
 %% API functions
@@ -26,34 +37,38 @@ init() ->
     Opts1 = [{O, application:get_env(dqe_idx_pg, O, undefined)}
              || O <- Opts],
     {Host, Port} = case application:get_env(dqe_idx_pg, server) of
-        {ok, {H, P}} ->
-            {H, P};
-        _ ->
-            {ok, H} = application:get_env(dqe_idx_pg, host),
-            {ok, P} = application:get_env(dqe_idx_pg, port),
-            {H, P}
-        end,
+                       {ok, {H, P}} ->
+                           {H, P};
+                       _ ->
+                           {ok, H} = application:get_env(dqe_idx_pg, host),
+                           {ok, P} = application:get_env(dqe_idx_pg, port),
+                           {H, P}
+                   end,
     pgapp:connect([{host, Host}, {port, Port} | Opts1]),
     sql_migration:run(dqe_idx_pg).
 
-lookup(Query, Start, Finish, _Opts) ->
-    {ok, Q, Vs} = query_builder:lookup_query(Query, []),
+lookup(Query, Start, Finish, Opts) ->
+    Grace = proplists:get_value(grace, Opts, ?GRACE),
+    {ok, Q, Vs} = query_builder:lookup_query(
+                    Query, Start - Grace, Finish + Grace, []),
     {ok, Rows} = execute({select, "lookup/1", Q, Vs}),
-    Rows1 = [{B, K, [{Start, Finish, default}]} || {B, K} <- Rows],
+    Rows1 = [translate_row(Row, Start, Finish, Grace) || Row <- Rows],
     {ok, Rows1}.
 
-lookup(Query, Start, Finish, Groupings, _Opts) ->
-    {ok, Q, Vs} = query_builder:lookup_query(Query, Groupings),
+lookup(Query, Start, Finish, Groupings, Opts) ->
+    Grace = proplists:get_value(grace, Opts, ?GRACE),
+    {ok, Q, Vs} = query_builder:lookup_query(
+                    Query, Start - Grace, Finish + Grace, Groupings),
     {ok, Rows} = execute({select, "lookup/2", Q, Vs}),
-    Rows1 = [{{Bucket, Key, [{Start, Finish, default}]},
+    Rows1 = [{translate_row({Bucket, Key, S, F}, Start, Finish, Grace),
               get_values(Groupings, Dimensions)} ||
-                {Bucket, Key, Dimensions} <- Rows],
+                {Bucket, Key, S, F, Dimensions} <- Rows],
     {ok, Rows1}.
 
 lookup_tags(Query) ->
     {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
     {ok, Rows} = execute({select, "lookup_tags/1", Q, Vs}),
-    R = [kvpair_to_tag(KV) || KV <- Rows],
+    R = [dqe_idx_pg_utils:kvpair_to_tag(KV) || KV <- Rows],
     {ok, R}.
 
 collections() ->
@@ -115,35 +130,50 @@ expand(Bucket, Globs) when
     Metrics = [M || {M} <- Rows],
     {ok, {Bucket, Metrics}}.
 
--spec add(collection(),
-          metric(),
-          bucket(),
-          key()) -> ok | {ok, row_id()} | sql_error().
-add(Collection, Metric, Bucket, Key) ->
-    add(Collection, Metric, Bucket, Key, []).
 
--spec add(collection(),
-          metric(),
-          bucket(),
-          key(),
-          [tag()]) -> ok | {ok, row_id()} | sql_error().
-add(Collection, Metric, Bucket, Key, Tags) ->
-    {ok, Q, Vs} = command_builder:add_metric(
-                    Collection, Metric, Bucket, Key, Tags),
-    case execute({command, "add/5", Q, Vs}) of
+touch(Data) ->
+    {ok, Q, Vs} = command_builder:touch(Data),
+    case execute({command, "touch/1", Q, Vs}) of
         {ok, 0, []} ->
             ok;
-        {ok, _Count, [{Dims}]} ->
-            {ok, hstore_to_tags(Dims)};
+        {ok, _Count, _} ->
+            ok;
         EAdd ->
             EAdd
     end.
 
--spec update(collection(),
-             metric(),
-             bucket(),
-             key(),
-             [tag()]) -> {ok, row_id()} | not_found() | sql_error().
+-spec add(dqe_idx:collection(),
+          dqe_idx:metric(),
+          dqe_idx:bucket(),
+          dqe_idx:key(),
+          dqe_idx:timestamp()) -> ok | {ok, row_id()} | sql_error().
+add(Collection, Metric, Bucket, Key, Timestamp) ->
+    add(Collection, Metric, Bucket, Key, Timestamp, []).
+
+-spec add(dqe_idx:collection(),
+          dqe_idx:metric(),
+          dqe_idx:bucket(),
+          dqe_idx:key(),
+          dqe_idx:timestamp(),
+          dqe_idx:tags()) -> ok | {ok, row_id()} | sql_error().
+%% TODO: handle timestamp
+add(Collection, Metric, Bucket, Key, Timestamp, Tags) ->
+    {ok, Q, Vs} = command_builder:add_metric(
+                    Collection, Metric, Bucket, Key, Timestamp, Tags),
+    case execute({command, "add/6", Q, Vs}) of
+        {ok, 0, []} ->
+            ok;
+        {ok, _Count, [{Dims}]} ->
+            {ok, dqe_idx_pg_utils:hstore_to_tags(Dims)};
+        EAdd ->
+            EAdd
+    end.
+
+-spec update(dqe_idx:collection(),
+             dqe_idx:metric(),
+             dqe_idx:bucket(),
+             dqe_idx:key(),
+             dqe_idx:tags()) -> {ok, row_id()} | not_found() | sql_error().
 update(Collection, Metric, Bucket, Key, NVs) ->
     {ok, Q, Vs} = command_builder:update_tags(
                     Collection, Metric, Bucket, Key, NVs),
@@ -151,15 +181,15 @@ update(Collection, Metric, Bucket, Key, NVs) ->
         {ok, 0, []} ->
             ok;
         {ok, _Count, [{Dims}]} ->
-            {ok, hstore_to_tags(Dims)};
+            {ok, dqe_idx_pg_utils:hstore_to_tags(Dims)};
         EAdd ->
             EAdd
     end.
 
--spec delete(collection(),
-             metric(),
-             bucket(),
-             key()) -> ok | sql_error().
+-spec delete(dqe_idx:collection(),
+             dqe_idx:metric(),
+             dqe_idx:bucket(),
+             dqe_idx:key()) -> ok | sql_error().
 delete(Collection, Metric, Bucket, Key) ->
     {ok, Q, Vs} = command_builder:delete_metric(Collection, Metric,
                                                 Bucket, Key),
@@ -170,11 +200,11 @@ delete(Collection, Metric, Bucket, Key) ->
             E
     end.
 
--spec delete(collection(),
-             metric(),
-             bucket(),
-             key(),
-             [{tag_ns(), tag_name()}]) -> ok | sql_error().
+-spec delete(dqe_idx:collection(),
+             dqe_idx:metric(),
+             dqe_idx:bucket(),
+             dqe_idx:key(),
+             [dqe_idx:tag()]) -> ok | sql_error().
 delete(Collection, Metric, Bucket, Key, Tags) ->
     {ok, Q, Vs} = command_builder:delete_tags(
                     Collection, Metric, Bucket, Key, Tags),
@@ -190,16 +220,16 @@ delete(Collection, Metric, Bucket, Key, Tags) ->
 %%====================================================================
 
 tdelta(T0) ->
-    (erlang:system_time() - T0)/1000/1000.
+    (erlang:system_time(nano_seconds) - T0)/1000/1000.
 
 strip_tpl(L) ->
     [E || {E} <- L].
 
 decode_ns_rows(Rows) ->
-    [decode_ns(E) || {E} <- Rows].
+    [dqe_idx_pg_utils:decode_ns(E) || {E} <- Rows].
 
 execute({select, Name, Q, Vs}) ->
-    T0 = erlang:system_time(),
+    T0 = erlang:system_time(nano_seconds),
     case pgapp:equery(Q, Vs, timeout()) of
         {ok, _Cols, Rows} ->
             lager:debug("[dqe_idx:pg:~p] PG Query took ~pms: ~s <- ~p",
@@ -209,7 +239,7 @@ execute({select, Name, Q, Vs}) ->
             report_error(Name, Q, Vs, T0, E)
     end;
 execute({command, Name, Q, Vs}) ->
-    T0 = erlang:system_time(),
+    T0 = erlang:system_time(nano_seconds),
     case pgapp:equery(Q, Vs, timeout()) of
         {ok, Count} ->
             lager:debug("[dqe_idx:pg:~p] PG Query took ~pms: ~s <- ~p",
@@ -229,7 +259,7 @@ report_error(Name, Q, Vs, T0, E) ->
     E.
 
 get_values(Grouping, {KVs}) when is_list(KVs) ->
-    Tags = [kvpair_to_tag(KV) || KV <- KVs],
+    Tags = [dqe_idx_pg_utils:kvpair_to_tag(KV) || KV <- KVs],
     get_values(Grouping, Tags, []).
 
 get_values([], _Tags, Acc) ->
@@ -248,3 +278,32 @@ get_tag_value(TagKey, [_ | Rest]) ->
 
 timeout() ->
     application:get_env(dqe_idx_pg, timeout, ?TIMEOUT).
+
+date_to_ms({Date , {H, M, S}}) ->
+    GSecs = calendar:datetime_to_gregorian_seconds({Date, {H, M, round(S)}}),
+    Secs = GSecs - ?S1970,
+    erlang:convert_time_unit(Secs, second, millisecond).
+
+translate_row({B, K, StartD, FinishD}, Start, Finish, Grace) ->
+    StartMSG = date_to_ms(StartD) - Grace,
+    FinishMSG = date_to_ms(FinishD) + Grace,
+    %% If our Finish, including grace goes further then the
+    %% requested finish we do not need to padd the end
+    %% otherwise we padd with null.
+    Cs0 = case FinishMSG of
+              FinishMSG when FinishMSG >= Finish ->
+                  [];
+              _ ->
+                  [{FinishMSG + 1, Finish, null}]
+          end,
+    %% The datachunk, we take the maxiumum of the  requested and he
+    %% found chunk as start end the minimum of the requested and found
+    %% finish.
+    Cs1 = [{max(StartMSG, Start), min(FinishMSG, Finish), default} | Cs0],
+    Cs2 = case StartMSG of
+              StartMSG when StartMSG =< Start ->
+                  Cs1;
+              _ ->
+                  [{Start, StartMSG -1, null} | Cs1]
+          end,
+    {B, K, Cs2}.

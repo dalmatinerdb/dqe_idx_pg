@@ -4,9 +4,8 @@
 
 -compile(export_all).
 
--import(eqc_helper, [lookup/0, lookup_tags/0, collection/0, prefix/0,
-                     pos_int/0, metric/0, namespace/0, tag_name/0,
-                     with_connection/1]).
+-import(eqc_helper, [lookup/0, lookup_tags/0, collection/0, prefix/0, pos_int/0,
+                     metric/0, namespace/0, tag_name/0, with_connection/1]).
 
 -define(M, query_builder).
 
@@ -17,16 +16,20 @@
 prop_lookup() ->
     ?SETUP(
        fun eqc_helper:setup/0,
-       ?FORALL({LQuery}, {lookup()},
-               begin
-                   Fun = fun(C) ->
-                                 {ok, Q, _V} = ?M:lookup_query(LQuery, []),
-                                 {Res, _} = epgsql:parse(C, Q),
-                                 Res
-                         end,
-                   ok =:= with_connection(Fun)
-               end
-              )).
+       ?FORALL(
+          {LQuery, Delta}, {lookup(), nat()},
+          begin
+              Fun =
+                  fun(C) ->
+                          Start = erlang:system_time(millisecond),
+                          Finish = Start + Delta,
+                          {ok, Q, _V} = ?M:lookup_query(LQuery, Start, Finish, []),
+                          {Res, _} = epgsql:parse(C, Q),
+                          Res
+                  end,
+              ok =:= with_connection(Fun)
+          end
+         )).
 
 prop_lookup_tags() ->
     ?SETUP(
