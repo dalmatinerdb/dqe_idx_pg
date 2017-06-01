@@ -211,7 +211,7 @@ delete(Collection, Metric, Bucket, Key, Tags) ->
 %%====================================================================
 
 tdelta(T0) ->
-    (erlang:system_time() - T0)/1000/1000.
+    (erlang:system_time(nano_seconds) - T0)/1000/1000.
 
 strip_tpl(L) ->
     [E || {E} <- L].
@@ -220,7 +220,7 @@ decode_ns_rows(Rows) ->
     [dqe_idx_pg_utils:decode_ns(E) || {E} <- Rows].
 
 execute({select, Name, Q, Vs}) ->
-    T0 = erlang:system_time(),
+    T0 = erlang:system_time(nano_seconds),
     case pgapp:equery(Q, Vs, timeout()) of
         {ok, _Cols, Rows} ->
             lager:debug("[dqe_idx:pg:~p] PG Query took ~pms: ~s <- ~p",
@@ -230,7 +230,7 @@ execute({select, Name, Q, Vs}) ->
             report_error(Name, Q, Vs, T0, E)
     end;
 execute({command, Name, Q, Vs}) ->
-    T0 = erlang:system_time(),
+    T0 = erlang:system_time(nano_seconds),
     case pgapp:equery(Q, Vs, timeout()) of
         {ok, Count} ->
             lager:debug("[dqe_idx:pg:~p] PG Query took ~pms: ~s <- ~p",
