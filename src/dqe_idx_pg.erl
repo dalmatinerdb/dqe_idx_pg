@@ -15,8 +15,6 @@
 
 -export_type([sql_stmt/0]).
 
--import(dqe_idx_pg_utils, [decode_ns/1, hstore_to_tags/1, kvpair_to_tag/1]).
-
 -type row_id()  :: pos_integer().
 -type sql_error() :: {'error', term()}.
 -type not_found() :: {'error', not_found}.
@@ -45,13 +43,13 @@ init() ->
     sql_migration:run(dqe_idx_pg).
 
 lookup(Query, Start, Finish, _Opts) ->
-    {ok, Q, Vs} = query_builder:lookup_query(Query, []),
+    {ok, Q, Vs} = query_builder:lookup_query(Query, Start, Finish, []),
     {ok, Rows} = execute({select, "lookup/1", Q, Vs}),
     Rows1 = [{B, K, [{Start, Finish, default}]} || {B, K} <- Rows],
     {ok, Rows1}.
 
 lookup(Query, Start, Finish, Groupings, _Opts) ->
-    {ok, Q, Vs} = query_builder:lookup_query(Query, Groupings),
+    {ok, Q, Vs} = query_builder:lookup_query(Query, Start, Finish, Groupings),
     {ok, Rows} = execute({select, "lookup/2", Q, Vs}),
     Rows1 = [{{Bucket, Key, [{Start, Finish, default}]},
               get_values(Groupings, Dimensions)} ||
@@ -61,7 +59,7 @@ lookup(Query, Start, Finish, Groupings, _Opts) ->
 lookup_tags(Query) ->
     {ok, Q, Vs} = query_builder:lookup_tags_query(Query),
     {ok, Rows} = execute({select, "lookup_tags/1", Q, Vs}),
-    R = [kvpair_to_tag(KV) || KV <- Rows],
+    R = [dqe_idx_pg_utils:kvpair_to_tag(KV) || KV <- Rows],
     {ok, R}.
 
 collections() ->
@@ -157,7 +155,7 @@ add(Collection, Metric, Bucket, Key, Timestamp, Tags) ->
         {ok, 0, []} ->
             ok;
         {ok, _Count, [{Dims}]} ->
-            {ok, hstore_to_tags(Dims)};
+            {ok, dqe_idx_pg_utils:hstore_to_tags(Dims)};
         EAdd ->
             EAdd
     end.
@@ -174,7 +172,7 @@ update(Collection, Metric, Bucket, Key, NVs) ->
         {ok, 0, []} ->
             ok;
         {ok, _Count, [{Dims}]} ->
-            {ok, hstore_to_tags(Dims)};
+            {ok, dqe_idx_pg_utils:hstore_to_tags(Dims)};
         EAdd ->
             EAdd
     end.
@@ -219,7 +217,7 @@ strip_tpl(L) ->
     [E || {E} <- L].
 
 decode_ns_rows(Rows) ->
-    [decode_ns(E) || {E} <- Rows].
+    [dqe_idx_pg_utils:decode_ns(E) || {E} <- Rows].
 
 execute({select, Name, Q, Vs}) ->
     T0 = erlang:system_time(),
@@ -252,7 +250,7 @@ report_error(Name, Q, Vs, T0, E) ->
     E.
 
 get_values(Grouping, {KVs}) when is_list(KVs) ->
-    Tags = [kvpair_to_tag(KV) || KV <- KVs],
+    Tags = [dqe_idx_pg_utils:kvpair_to_tag(KV) || KV <- KVs],
     get_values(Grouping, Tags, []).
 
 get_values([], _Tags, Acc) ->

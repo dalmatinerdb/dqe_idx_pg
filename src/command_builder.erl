@@ -6,12 +6,7 @@
          delete_metric/4,
          delete_tags/5]).
 
--import(dqe_idx_pg_utils, [encode_tag_key/2, tags_to_hstore/1]).
-
 -include_lib("dqe_idx_pg/include/dqe_idx_pg.hrl").
-%% 62167219200 == calendar:datetime_to_gregorian_seconds(
-%% {{1970, 1, 1}, {0, 0, 0}})
--define(S1970, 62167219200).
 
 %%====================================================================
 %% API
@@ -38,7 +33,7 @@ add_metric(Collection, Metric, Bucket, Key, undefined, Tags)
         "(collection, metric, bucket, key, dimensions) VALUES "
         "($1, $2, $3, $4, $5) "
         "ON CONFLICT DO NOTHING RETURNING dimensions",
-    HStore = tags_to_hstore(Tags),
+    HStore = dqe_idx_pg_utils:tags_to_hstore(Tags),
     Values = [Collection, Metric, Bucket, Key, HStore],
     {ok, Query, Values};
 
@@ -49,13 +44,13 @@ add_metric(Collection, Metric, Bucket, Key, FirstSeen, Tags)
        is_list(Key),
        is_integer(FirstSeen),
        is_list(Tags) ->
-    FirstSeenD = s_to_date(FirstSeen),
+    FirstSeenD = dqe_idx_pg_utils:s_to_date(FirstSeen),
     Query = "INSERT INTO " ?MET_TABLE " "
         "(collection, metric, bucket, key, time_range, dimensions) VALUES "
         "($1, $2, $3, $4, "
         "tsrange($5, 'infinity'::timestamp), $6) "
         "ON CONFLICT DO NOTHING RETURNING dimensions",
-    HStore = tags_to_hstore(Tags),
+    HStore = dqe_idx_pg_utils:tags_to_hstore(Tags),
     Values = [Collection, Metric, Bucket, Key, FirstSeenD, HStore],
     {ok, Query, Values}.
 
@@ -102,7 +97,7 @@ update_tags(Collection, Metric, Bucket, Key, Tags) ->
         "    AND bucket = $3"
         "    AND key = $4"
         "  RETURNING dimensions",
-    HStore = tags_to_hstore(Tags),
+    HStore = dqe_idx_pg_utils:tags_to_hstore(Tags),
     Values = [Collection, Metric, Bucket, Key, HStore],
     {ok, Query, Values}.
 
@@ -119,16 +114,13 @@ delete_tags(Collection, Metric, Bucket, Key, Tags) ->
         "    AND metric = $2 "
         "    AND bucket = $3 "
         "    AND key = $4",
-    HKeys = [encode_tag_key(NS, N) || {NS, N, _} <- Tags],
+    HKeys = [dqe_idx_pg_utils:encode_tag_key(NS, N) || {NS, N, _} <- Tags],
     Values = [Collection, Metric, Bucket, Key, HKeys],
     {ok, Query, Values}.
 
 %%====================================================================
 %% Internal functions
 %%====================================================================
-
-s_to_date(S) ->
-    calendar:gregorian_seconds_to_datetime(S + ?S1970).
 
 mk_touch_values(Points) ->
     Now = erlang:system_time(seconds),
@@ -142,12 +134,12 @@ mk_touch_values([{Bucket, Key, now} | R], Now, N, Values, Data) ->
 
 mk_touch_values([{Bucket, Key, Time}], _Now, N, Values, Data) ->
     Values1 = [Values, n_to_tpl(N)],
-    Data1 = [s_to_date(Time), Key, Bucket | Data],
+    Data1 = [dqe_idx_pg_utils:s_to_date(Time), Key, Bucket | Data],
     {Values1, lists:reverse(Data1)};
 
 mk_touch_values([{Bucket, Key, Time} | R], Now, N, Values, Data) ->
     Values1 = [Values, n_to_tpl(N), ", "],
-    Data1 = [s_to_date(Time), Key, Bucket | Data],
+    Data1 = [dqe_idx_pg_utils:s_to_date(Time), Key, Bucket | Data],
     mk_touch_values(R, Now, N + 3, Values1, Data1).
 
 n_to_tpl(N) ->

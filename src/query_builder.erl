@@ -4,15 +4,13 @@
          namespaces_query/1, namespaces_query/2,
          tags_query/2, tags_query/3,
          values_query/3, values_query/4,
-         lookup_query/2, lookup_tags_query/1,
+         lookup_query/4, lookup_tags_query/1,
          glob_query/2]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -export([interalize_and/1, simplify/1, optimize_logic/1]).
 -endif.
-
--import(dqe_idx_pg_utils, [encode_tag_key/2]).
 
 -include("dqe_idx_pg.hrl").
 
@@ -100,7 +98,7 @@ tags_query(Collection, Metric, Namespace)
              "  FROM (", SubQ, ") AS data(key)"
              "  WHERE key LIKE $" ++ i2l(I + 1) ++ " ESCAPE '~'"],
     Ns1 = escape_sql_pattern(Namespace, <<>>),
-    Ns2 = encode_tag_key(Ns1, <<"%">>),
+    Ns2 = dqe_idx_pg_utils:encode_tag_key(Ns1, <<"%">>),
     Values = SubV ++ [Ns2],
     {ok, Query, Values}.
 
@@ -111,7 +109,7 @@ values_query(Collection, Namespace, Tag)
     Query = "SELECT DISTINCT dimensions -> $2 FROM " ?MET_TABLE
         "  WHERE collection = $1"
         "    AND dimensions ? $2",
-    Tag1 = encode_tag_key(Namespace, Tag),
+    Tag1 = dqe_idx_pg_utils:encode_tag_key(Namespace, Tag),
     Values = [Collection, Tag1],
     {ok, Query, Values}.
 
@@ -124,20 +122,21 @@ values_query(Collection, Metric, Namespace, Tag)
         "  WHERE collection = $1"
         "    AND metric = $2"
         "    AND dimensions ? $3",
-    Tag1 = encode_tag_key(Namespace, Tag),
+    Tag1 = dqe_idx_pg_utils:encode_tag_key(Namespace, Tag),
     Values = [Collection, Metric, Tag1],
     {ok, Query, Values}.
 
-lookup_query(Lookup, []) ->
+lookup_query(Lookup, _Start, _Finish, []) ->
     {Condition, CVals} = lookup_condition(Lookup),
-    Query = ["SELECT bucket, key FROM metrics WHERE " | Condition],
+    Query = ["SELECT bucket, key FROM metrics WHERE "
+             "time_range && " | Condition],
     {ok, Query, CVals};
-lookup_query(Lookup, KeysToRead) ->
+lookup_query(Lookup, _Start, _Finish, KeysToRead) ->
     {Condition, CVals} = lookup_condition(Lookup),
     I = length(CVals),
     Query = ["SELECT bucket, key, slice(dimensions, $", i2l(I + 1), ")"
              "  FROM metrics WHERE " | Condition],
-    Keys = [encode_tag_key(Ns, Name) || {Ns, Name} <- KeysToRead],
+    Keys = [dqe_idx_pg_utils:encode_tag_key(Ns, Name) || {Ns, Name} <- KeysToRead],
     Values = CVals ++ [Keys],
     {ok, Query, Values}.
 
@@ -300,7 +299,7 @@ i2l(I) ->
     integer_to_list(I).
 
 encode_tag({tag, Ns, Name}) ->
-    encode_tag_key(Ns, Name).
+    dqe_idx_pg_utils:encode_tag_key(Ns, Name).
 
 escape_sql_pattern(<<>>, Acc) ->
     Acc;
