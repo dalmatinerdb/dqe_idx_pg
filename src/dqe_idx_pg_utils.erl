@@ -3,6 +3,7 @@
 -export([encode_tag_key/2,
          decode_ns/1,
          s_to_date/1,
+         ms_to_date/1,
          tags_to_hstore/1,
          hstore_to_tags/1,
          kvpair_to_tag/1]).
@@ -46,6 +47,10 @@ hstore_to_tags({KVs}) when is_list(KVs) ->
 kvpair_to_tag({Key, Value}) ->
     {Ns, Name} = decode_key(Key, <<>>),
     {Ns, Name, Value}.
+
+ms_to_date(MS) ->
+    S = erlang:convert_time_unit(MS, millisecond, second),
+    s_to_date(S).
 
 s_to_date(S) ->
     calendar:gregorian_seconds_to_datetime(S + ?S1970).

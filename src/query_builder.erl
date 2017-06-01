@@ -126,22 +126,29 @@ values_query(Collection, Metric, Namespace, Tag)
     Values = [Collection, Metric, Tag1],
     {ok, Query, Values}.
 
-lookup_query(Lookup, _Start, _Finish, []) ->
-    {Condition, CVals} = lookup_condition(Lookup),
+lookup_query(Lookup, Start, Finish, []) ->
+    {Condition, CVals} = lookup_condition(Lookup, 3),
     Query = ["SELECT bucket, key FROM metrics WHERE "
-             "time_range && " | Condition],
-    {ok, Query, CVals};
-lookup_query(Lookup, _Start, _Finish, KeysToRead) ->
-    {Condition, CVals} = lookup_condition(Lookup),
-    I = length(CVals),
-    Query = ["SELECT bucket, key, slice(dimensions, $", i2l(I + 1), ")"
-             "  FROM metrics WHERE " | Condition],
-    Keys = [dqe_idx_pg_utils:encode_tag_key(Ns, Name) || {Ns, Name} <- KeysToRead],
-    Values = CVals ++ [Keys],
+             "time_range && tsrange($1, $2) AND " | Condition],
+    Values = [dqe_idx_pg_utils:ms_to_date(Start),
+              dqe_idx_pg_utils:ms_to_date(Finish)
+              | CVals],
+    {ok, Query, Values};
+lookup_query(Lookup, Start, Finish, KeysToRead) ->
+    {Condition, CVals} = lookup_condition(Lookup, 4),
+    Query = ["SELECT bucket, key, slice(dimensions, $1)"
+             "  FROM metrics WHERE time_range && tsrange($2, $3) AND "
+             | Condition],
+    Keys = [dqe_idx_pg_utils:encode_tag_key(Ns, Name)
+            || {Ns, Name} <- KeysToRead],
+    Values = [Keys,
+              dqe_idx_pg_utils:ms_to_date(Start),
+              dqe_idx_pg_utils:ms_to_date(Finish)
+              | CVals],
     {ok, Query, Values}.
 
 lookup_tags_query(Lookup) ->
-    {Condition, CVals} = lookup_condition(Lookup),
+    {Condition, CVals} = lookup_condition(Lookup, 1),
     Query = ["SELECT (kv).key, (kv).value"
              "  FROM ("
              "    SELECT DISTINCT each(dimensions)"
@@ -186,21 +193,23 @@ keys_subquery_with_condition(Condition, Values) ->
         "SELECT DISTINCT unnest(keys) FROM t",
     {Query, Values}.
 
-lookup_condition({in, Collection, undefined}) ->
-    {"collection = $1", [Collection]};
-lookup_condition({in, Collection, Metric}) ->
-    {"collection = $1 AND metric = $2",
+lookup_condition({in, Collection, undefined}, N) ->
+    {["collection = $", i2l(N)], [Collection]};
+lookup_condition({in, Collection, Metric}, N) ->
+    {["collection = $", i2l(N),
+      " AND metric = $", i2l(N + 1)],
      [Collection, Metric]};
-lookup_condition({in, Collection, undefined, Where}) ->
+lookup_condition({in, Collection, undefined, Where}, N) ->
     Criteria = lookup_criteria(Where),
-    {Condition, CValues} = criteria_condition(Criteria, 1),
-    Query = ["collection = $1 AND " | Condition],
+    {Condition, CValues} = criteria_condition(Criteria, N + 1),
+    Query = ["collection = $", i2l(N) ," AND " | Condition],
     Values = [Collection | CValues],
     {Query, Values};
-lookup_condition({in, Collection, Metric, Where}) ->
+lookup_condition({in, Collection, Metric, Where}, N) ->
     Criteria = lookup_criteria(Where),
-    {Condition, CValues} = criteria_condition(Criteria, 2),
-    Query = ["collection = $1 AND metric = $2 AND " | Condition],
+    {Condition, CValues} = criteria_condition(Criteria, N + 2),
+    Query = ["collection = $", i2l(N) ," AND metric = $", i2l(N + 1) ," AND "
+             | Condition],
     Values = [Collection, Metric | CValues],
     {Query, Values}.
 
