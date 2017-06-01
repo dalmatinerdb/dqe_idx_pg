@@ -22,6 +22,11 @@
 
 
 -define(TIMEOUT, 5 * 1000).
+%% 1 hour in milliseconds
+
+-define(HOUR, 3600000).
+-define(GRACE, ?HOUR).
+-define(S1970, 62167219200).
 
 %%====================================================================
 %% API functions
@@ -42,18 +47,22 @@ init() ->
     pgapp:connect([{host, Host}, {port, Port} | Opts1]),
     sql_migration:run(dqe_idx_pg).
 
-lookup(Query, Start, Finish, _Opts) ->
-    {ok, Q, Vs} = query_builder:lookup_query(Query, Start, Finish, []),
+lookup(Query, Start, Finish, Opts) ->
+    Grace = proplists:get_value(grace, Opts, ?GRACE),
+    {ok, Q, Vs} = query_builder:lookup_query(
+                    Query, Start - Grace, Finish + Grace, []),
     {ok, Rows} = execute({select, "lookup/1", Q, Vs}),
-    Rows1 = [{B, K, [{Start, Finish, default}]} || {B, K} <- Rows],
+    Rows1 = [translate_row(Row, Start, Finish, Grace) || Row <- Rows],
     {ok, Rows1}.
 
-lookup(Query, Start, Finish, Groupings, _Opts) ->
-    {ok, Q, Vs} = query_builder:lookup_query(Query, Start, Finish, Groupings),
+lookup(Query, Start, Finish, Groupings, Opts) ->
+    Grace = proplists:get_value(grace, Opts, ?GRACE),
+    {ok, Q, Vs} = query_builder:lookup_query(
+                    Query, Start - Grace, Finish + Grace, Groupings),
     {ok, Rows} = execute({select, "lookup/2", Q, Vs}),
-    Rows1 = [{{Bucket, Key, [{Start, Finish, default}]},
+    Rows1 = [{translate_row({Bucket, Key, S, F}, Start, Finish, Grace),
               get_values(Groupings, Dimensions)} ||
-                {Bucket, Key, Dimensions} <- Rows],
+                {Bucket, Key, S, F, Dimensions} <- Rows],
     {ok, Rows1}.
 
 lookup_tags(Query) ->
@@ -269,3 +278,32 @@ get_tag_value(TagKey, [_ | Rest]) ->
 
 timeout() ->
     application:get_env(dqe_idx_pg, timeout, ?TIMEOUT).
+
+date_to_ms({Date ,{H,M,S}}) ->
+    GSecs = calendar:datetime_to_gregorian_seconds({Date, {H,M,round(S)}}),
+    Secs = GSecs - ?S1970,
+    erlang:convert_time_unit(Secs, second, millisecond).
+
+translate_row({B, K, StartD, FinishD}, Start, Finish, Grace) ->
+    StartMSG = date_to_ms(StartD) - Grace,
+    FinishMSG = date_to_ms(FinishD) + Grace,
+    %% If our Finish, including grace goes further then the
+    %% requested finish we do not need to padd the end
+    %% otherwise we padd with null.
+    Cs0 = case FinishMSG of
+              FinishMSG when FinishMSG >= Finish ->
+                  [];
+              _ ->
+                  [{FinishMSG + 1, Finish, null}]
+          end,
+    %% The datachunk, we take the maxiumum of the  requested and he
+    %% found chunk as start end the minimum of the requested and found
+    %% finish.
+    Cs1 = [{max(StartMSG, Start), min(FinishMSG, Finish), default} | Cs0],
+    Cs2 = case StartMSG of
+              StartMSG when StartMSG =< Start ->
+                  Cs1;
+              _ ->
+                  [{Start, StartMSG -1, null} | Cs1]
+          end,
+    {B, K, Cs2}.

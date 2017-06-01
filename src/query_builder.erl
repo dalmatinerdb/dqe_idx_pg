@@ -12,7 +12,7 @@
 -export([interalize_and/1, simplify/1, optimize_logic/1]).
 -endif.
 
--include("dqe_idx_pg.hrl").
+-include_lib("dqe_idx_pg/include/dqe_idx_pg.hrl").
 
 -define(NAMESPACE_PATTERN, "'^(([^:]|\\\\\\\\|\\\\:)*):'").
 -define(NAME_PATTERN, "'^(?:[^:]|\\\\\\\\|\\\\:)*:(.*)$'").
@@ -127,17 +127,19 @@ values_query(Collection, Metric, Namespace, Tag)
 
 lookup_query(Lookup, Start, Finish, []) ->
     {Condition, CVals} = lookup_condition(Lookup, 3),
-    Query = ["SELECT bucket, key FROM metrics WHERE "
-             "time_range && tsrange($1, $2) AND " | Condition],
+    Query = ["SELECT bucket, key, lower(time_range), upper(time_range) "
+             "FROM metrics WHERE time_range && tsrange($1, $2) AND "
+             | Condition],
     Values = [dqe_idx_pg_utils:ms_to_date(Start),
               dqe_idx_pg_utils:ms_to_date(Finish)
               | CVals],
     {ok, Query, Values};
+
 lookup_query(Lookup, Start, Finish, KeysToRead) ->
     {Condition, CVals} = lookup_condition(Lookup, 4),
-    Query = ["SELECT bucket, key, slice(dimensions, $1)"
-             "  FROM metrics WHERE time_range && tsrange($2, $3) AND "
-             | Condition],
+    Query = ["SELECT bucket, key, lower(time_range), upper(time_range), "
+             "slice(dimensions, $1)  FROM metrics WHERE "
+             "time_range && tsrange($2, $3) AND " | Condition],
     Keys = [dqe_idx_pg_utils:encode_tag_key(Ns, Name)
             || {Ns, Name} <- KeysToRead],
     Values = [Keys,
