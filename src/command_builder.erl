@@ -48,7 +48,7 @@ add_metric(Collection, Metric, Bucket, Key, FirstSeen, Tags)
     Query = "INSERT INTO " ?MET_TABLE " "
         "(collection, metric, bucket, key, time_range, dimensions) VALUES "
         "($1, $2, $3, $4, "
-        "tsrange($5, $5 + '1s'::interval), $6) "
+        "tsrange($5::timestamp, $5::timestamp + '1s'::interval), $6) "
         "ON CONFLICT DO NOTHING RETURNING dimensions",
     HStore = dqe_idx_pg_utils:tags_to_hstore(Tags),
     Values = [Collection, Metric, Bucket, Key, FirstSeenD, HStore],
