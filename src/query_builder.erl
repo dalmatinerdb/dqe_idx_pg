@@ -200,13 +200,13 @@ lookup_condition({in, Collection, Metric}, N) ->
 lookup_condition({in, Collection, undefined, Where}, N) ->
     Criteria = lookup_criteria(Where),
     {Condition, CValues, _NextI} = criteria_condition(Criteria, N + 1),
-    Query = ["collection = $", i2l(N) ," AND " | Condition],
+    Query = ["collection = $", i2l(N), " AND " | Condition],
     Values = [Collection | CValues],
     {Query, Values};
 lookup_condition({in, Collection, Metric, Where}, N) ->
     Criteria = lookup_criteria(Where),
     {Condition, CValues, _NextI} = criteria_condition(Criteria, N + 2),
-    Query = ["collection = $", i2l(N) ," AND metric = $", i2l(N + 1) ," AND "
+    Query = ["collection = $", i2l(N), " AND metric = $", i2l(N + 1), " AND "
              | Condition],
     Values = [Collection, Metric | CValues],
     {Query, Values}.
