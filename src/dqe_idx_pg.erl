@@ -9,7 +9,7 @@
          lookup/4, lookup/5, lookup_tags/1,
          collections/0, metrics/1, metrics/3, namespaces/1, namespaces/2,
          tags/2, tags/3, values/3, values/4, expand/2,
-         add/5, add/6, update/6, touch/1,
+         add/5, add/6, update/5, touch/1,
          delete/4, delete/5
         ]).
 
@@ -138,10 +138,10 @@ add(Collection, Metric, Bucket, Key, Timestamp) ->
           dqe_idx:timestamp(),
           dqe_idx:tags()) -> ok | {ok, row_id()} | sql_error().
 %% TODO: handle timestamp
-add(Collection, Metric, Bucket, Key, _Timestamp, Tags) ->
+add(Collection, Metric, Bucket, Key, Timestamp, Tags) ->
     {ok, Q, Vs} = command_builder:add_metric(
-                    Collection, Metric, Bucket, Key, Tags),
-    case execute({command, "add/5", Q, Vs}) of
+                    Collection, Metric, Bucket, Key, Timestamp, Tags),
+    case execute({command, "add/6", Q, Vs}) of
         {ok, 0, []} ->
             ok;
         {ok, _Count, [{Dims}]} ->
@@ -154,9 +154,8 @@ add(Collection, Metric, Bucket, Key, _Timestamp, Tags) ->
              dqe_idx:metric(),
              dqe_idx:bucket(),
              dqe_idx:key(),
-             dqe_idx:timestamp(),
              dqe_idx:tags()) -> {ok, row_id()} | not_found() | sql_error().
-update(Collection, Metric, Bucket, Key, _Timestamp, NVs) ->
+update(Collection, Metric, Bucket, Key, NVs) ->
     {ok, Q, Vs} = command_builder:update_tags(
                     Collection, Metric, Bucket, Key, NVs),
     case execute({command, "update/5", Q, Vs}) of
