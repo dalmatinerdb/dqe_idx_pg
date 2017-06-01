@@ -1,7 +1,7 @@
 -module(dqe_idx_pg).
 -behaviour(dqe_idx).
 
--include("dqe_idx_pg.hrl").
+-include_lib("dqe_idx_pg/include/dqe_idx_pg.hrl").
 
 %% API exports
 -export([
@@ -13,11 +13,15 @@
          delete/4, delete/5
         ]).
 
+-export_type([sql_stmt/0]).
+
 -import(dqe_idx_pg_utils, [decode_ns/1, hstore_to_tags/1, kvpair_to_tag/1]).
 
 -type row_id()  :: pos_integer().
 -type sql_error() :: {'error', term()}.
 -type not_found() :: {'error', not_found}.
+-type sql_stmt() :: {ok, iolist(), [term()]}.
+
 
 -define(TIMEOUT, 5 * 1000).
 
@@ -120,8 +124,16 @@ expand(Bucket, Globs) when
     {ok, {Bucket, Metrics}}.
 
 
-touch(_Data) ->
-    ok.
+touch(Data) ->
+    {ok, Q, Vs} = command_builder:touch(Data),
+    case execute({command, "touch/1", Q, Vs}) of
+        {ok, 0, []} ->
+            ok;
+        {ok, _Count, _} ->
+            ok;
+        EAdd ->
+            EAdd
+    end.
 
 -spec add(dqe_idx:collection(),
           dqe_idx:metric(),

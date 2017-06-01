@@ -1,6 +1,7 @@
 -module(command_builder).
 
--export([add_metric/6,
+-export([touch/1,
+         add_metric/6,
          update_tags/5,
          delete_metric/4,
          delete_tags/5]).
@@ -11,14 +12,22 @@
 %% 62167219200 == calendar:datetime_to_gregorian_seconds(
 %% {{1970, 1, 1}, {0, 0, 0}})
 -define(S1970, 62167219200).
+
 %%====================================================================
 %% API
 %%====================================================================
 
--spec add_metric(binary(), [binary()], binary(), [binary()],
-                 pos_integer() | undefined,
-                 [{binary(), binary(), binary()}]) ->
-                        {ok, iolist(), [term()]}.
+-spec add_metric(dqe_idx:collection(),
+                 dqe_idx:metric(),
+                 dqe_idx:bucket(),
+                 dqe_idx:key(),
+                 dqe_idx:timestamp(),
+                 dqe_idx:tags()) ->
+                        dqe_idx_pg:sql_stmt().
+add_metric(Collection, Metric, Bucket, Key, now, Tags) ->
+    Now = erlang:system_time(seconds),
+    add_metric(Collection, Metric, Bucket, Key, Now, Tags);
+
 add_metric(Collection, Metric, Bucket, Key, undefined, Tags)
   when is_binary(Collection),
        is_list(Metric),
@@ -40,7 +49,7 @@ add_metric(Collection, Metric, Bucket, Key, FirstSeen, Tags)
        is_list(Key),
        is_integer(FirstSeen),
        is_list(Tags) ->
-    FirstSeenD = calendar:gregorian_seconds_to_datetime(FirstSeen + ?S1970),
+    FirstSeenD = s_to_date(FirstSeen),
     Query = "INSERT INTO " ?MET_TABLE " "
         "(collection, metric, bucket, key, time_range, dimensions) VALUES "
         "($1, $2, $3, $4, "
@@ -50,8 +59,22 @@ add_metric(Collection, Metric, Bucket, Key, FirstSeen, Tags)
     Values = [Collection, Metric, Bucket, Key, FirstSeenD, HStore],
     {ok, Query, Values}.
 
--spec delete_metric(binary(), [binary()], binary(), [binary()]) ->
-                           {ok, iolist(), [term()]}.
+-spec touch(dqe_idx:touch_points()) ->
+                   dqe_idx_pg:sql_stmt().
+
+touch(Points) ->
+    {Values, Data} = mk_touch_values(Points),
+    Query = "UPDATE metrics AS m SET"
+        "  time_range = tsrange(lower(time_range), p.last_seen) "
+        "FROM (VALUES " ++ Values ++ ") as p(bucket, key, last_seen) "
+        "WHERE m.bucket = p.bucket AND m.key = p.key",
+    {ok, Query, Data}.
+
+-spec delete_metric(dqe_idx:collection(),
+                    dqe_idx:metric(),
+                    dqe_idx:bucket(),
+                    dqe_idx:key()) ->
+                           dqe_idx_pg:sql_stmt().
 delete_metric(Collection, Metric, Bucket, Key)
   when is_binary(Collection),
        is_list(Metric),
@@ -65,9 +88,12 @@ delete_metric(Collection, Metric, Bucket, Key)
     Values = [Collection, Metric, Bucket, Key],
     {ok, Query, Values}.
 
--spec update_tags(binary(), [binary()], binary(), [binary()],
-                  [{binary(), binary(), binary()}]) ->
-                         {ok, iolist(), [term()]}.
+-spec update_tags(dqe_idx:collection(),
+                  dqe_idx:metric(),
+                  dqe_idx:bucket(),
+                  dqe_idx:key(),
+                  dqe_idx:tags()) ->
+                         dqe_idx_pg:sql_stmt().
 update_tags(Collection, Metric, Bucket, Key, Tags) ->
     Query = "UPDATE " ?MET_TABLE
         "  SET dimensions = dimensions || $5"
@@ -80,9 +106,12 @@ update_tags(Collection, Metric, Bucket, Key, Tags) ->
     Values = [Collection, Metric, Bucket, Key, HStore],
     {ok, Query, Values}.
 
--spec delete_tags(binary(), [binary()], binary(), [binary()],
-                  [{binary(), binary(), binary()}]) ->
-                         {ok, iolist(), [term()]}.
+-spec delete_tags(dqe_idx:collection(),
+                  dqe_idx:metric(),
+                  dqe_idx:bucket(),
+                  dqe_idx:key(),
+                  [dqe_idx:tag()]) ->
+                         dqe_idx_pg:sql_stmt().
 delete_tags(Collection, Metric, Bucket, Key, Tags) ->
     Query = "UPDATE " ?MET_TABLE
         "  SET dimensions = delete(dimensions, $5)"
@@ -93,3 +122,36 @@ delete_tags(Collection, Metric, Bucket, Key, Tags) ->
     HKeys = [encode_tag_key(NS, N) || {NS, N, _} <- Tags],
     Values = [Collection, Metric, Bucket, Key, HKeys],
     {ok, Query, Values}.
+
+%%====================================================================
+%% Internal functions
+%%====================================================================
+
+s_to_date(S) ->
+    calendar:gregorian_seconds_to_datetime(S + ?S1970).
+
+mk_touch_values(Points) ->
+    Now = erlang:system_time(seconds),
+    mk_touch_values(Points, Now, 1, "", []).
+
+mk_touch_values([{Bucket, Key} | R], Now, N, Values, Data) ->
+    mk_touch_values([{Bucket, Key, Now} | R], Now, N, Values, Data);
+
+mk_touch_values([{Bucket, Key, now} | R], Now, N, Values, Data) ->
+    mk_touch_values([{Bucket, Key, Now} | R], Now, N, Values, Data);
+
+mk_touch_values([{Bucket, Key, Time}], _Now, N, Values, Data) ->
+    Values1 = [Values, n_to_tpl(N)],
+    Data1 = [s_to_date(Time), Key, Bucket | Data],
+    {Values1, lists:reverse(Data1)};
+
+mk_touch_values([{Bucket, Key, Time} | R], Now, N, Values, Data) ->
+    Values1 = [Values, n_to_tpl(N), ", "],
+    Data1 = [s_to_date(Time), Key, Bucket | Data],
+    mk_touch_values(R, Now, N + 3, Values1, Data1).
+
+n_to_tpl(N) ->
+    ["(",
+     $$, integer_to_list(N), "::text, ",
+     $$, integer_to_list(N + 1), "::text[], ",
+     $$, integer_to_list(N + 2), "::timestamp)"].
