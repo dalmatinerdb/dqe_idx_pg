@@ -48,7 +48,7 @@ non_empty_list(T) ->
     ?SUCHTHAT(L, list(T), L /= []).
 
 pos_int() ->
-    ?SUCHTHAT(I, int(), I > 0).
+    ?SUCHTHAT(I, nat(), I > 0).
 
 bucket() ->
     non_empty_binary().
