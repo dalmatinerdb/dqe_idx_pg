@@ -1,6 +1,6 @@
 -module(query_builder).
 
--export([collections_query/0, metrics_query/1, metrics_query/3,
+-export([collections_query/0, metrics_query/1, metrics_query/2, metrics_query/3,
          namespaces_query/1, namespaces_query/2,
          tags_query/2, tags_query/3,
          values_query/3, values_query/4,
@@ -46,6 +46,23 @@ metrics_query(Collection)
         "   )"
         "SELECT metric FROM t WHERE metric IS NOT NULL",
     Values = [Collection],
+    {ok, Query, Values}.
+
+metrics_query(Collection, Where)
+  when is_binary(Collection) ->
+    Criteria = lookup_criteria(Where),
+    {Condition, CValues, _NextI} = criteria_condition(Criteria, 2),
+    Query = "WITH RECURSIVE t AS ("
+        "   SELECT MIN(metric) AS metric FROM " ?MET_TABLE
+        "     WHERE collection = $1 AND " ++ Condition ++
+        "   UNION ALL"
+        "   SELECT (SELECT MIN(metric) FROM " ?MET_TABLE
+        "     WHERE metric > t.metric"
+        "     AND collection = $1 AND " ++ Condition ++ ")"
+        "   FROM t WHERE t.metric IS NOT NULL"
+        "   )"
+        "SELECT metric FROM t WHERE metric IS NOT NULL",
+    Values = [Collection | CValues],
     {ok, Query, Values}.
 
 metrics_query(Collection, Prefix, Depth)

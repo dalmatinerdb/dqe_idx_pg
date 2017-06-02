@@ -7,7 +7,8 @@
 -export([
          init/0,
          lookup/4, lookup/5, lookup_tags/1,
-         collections/0, metrics/1, metrics/3, namespaces/1, namespaces/2,
+         collections/0, metrics/1, metrics/2, metrics/3,
+         namespaces/1, namespaces/2,
          tags/2, tags/3, values/3, values/4, expand/2,
          add/5, add/6, update/5, touch/1,
          delete/4, delete/5
@@ -78,6 +79,12 @@ collections() ->
 
 metrics(Collection) ->
     {ok, Q, Vs} = query_builder:metrics_query(Collection),
+    {ok, Rows} = execute({select, "metrics/1", Q, Vs}),
+    R = [M || {M} <- Rows],
+    {ok, R}.
+
+metrics(Collection, Tags) ->
+    {ok, Q, Vs} = query_builder:metrics_query(Collection, Tags),
     {ok, Rows} = execute({select, "metrics/1", Q, Vs}),
     R = [M || {M} <- Rows],
     {ok, R}.
