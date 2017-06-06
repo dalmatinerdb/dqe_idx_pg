@@ -289,7 +289,7 @@ timeout() ->
 date_to_ms({Date , {H, M, S}}) ->
     GSecs = calendar:datetime_to_gregorian_seconds({Date, {H, M, round(S)}}),
     Secs = GSecs - ?S1970,
-    erlang:convert_time_unit(Secs, second, millisecond).
+    erlang:convert_time_unit(Secs, seconds, milli_seconds).
 
 translate_row({B, K, StartD, FinishD}, Start, Finish, Grace) ->
     StartMSG = date_to_ms(StartD) - Grace,

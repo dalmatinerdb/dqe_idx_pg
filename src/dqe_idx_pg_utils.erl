@@ -49,7 +49,7 @@ kvpair_to_tag({Key, Value}) ->
     {Ns, Name, Value}.
 
 ms_to_date(MS) ->
-    S = erlang:convert_time_unit(MS, millisecond, second),
+    S = erlang:convert_time_unit(MS, milli_seconds, seconds),
     s_to_date(S).
 
 s_to_date(S) ->

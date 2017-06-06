@@ -21,7 +21,7 @@ prop_lookup() ->
           begin
               Fun =
                   fun(C) ->
-                          Start = erlang:system_time(millisecond),
+                          Start = erlang:system_time(milli_seconds),
                           Finish = Start + Delta,
                           {ok, Q, _V} = ?M:lookup_query(LQuery, Start, Finish, []),
                           {Res, _} = epgsql:parse(C, Q),
