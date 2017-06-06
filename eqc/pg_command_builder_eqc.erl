@@ -1,4 +1,4 @@
--module(command_builder_eqc).
+-module(pg_command_builder_eqc).
 
 -include_lib("eqc/include/eqc.hrl").
 
@@ -8,7 +8,7 @@
                      tag_name/0, namespace/0, non_empty_list/1,
                      with_connection/1]).
 
--define(M, command_builder).
+-define(M, pg_command_builder).
 
 timestamp() ->
     oneof([now, undefined, nat()]).

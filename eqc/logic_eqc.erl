@@ -39,7 +39,7 @@ prop_optimize() ->
     ?FORALL(
        L, logic(),
        begin
-           S = query_builder:simplify(L),
-           R = query_builder:interalize_and(S),
+           S = pg_query_builder:simplify(L),
+           R = pg_query_builder:interalize_and(S),
            eval_logic(L) =:= eval_logic(R)
        end).

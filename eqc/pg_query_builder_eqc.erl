@@ -1,4 +1,4 @@
--module(query_builder_eqc).
+-module(pg_query_builder_eqc).
 
 -include_lib("eqc/include/eqc.hrl").
 
@@ -7,7 +7,7 @@
 -import(eqc_helper, [lookup/0, lookup_tags/0, collection/0, prefix/0, pos_int/0,
                      metric/0, namespace/0, tag_name/0, with_connection/1]).
 
--define(M, query_builder).
+-define(M, pg_query_builder).
 
 %%%-------------------------------------------------------------------
 %%% Properties
