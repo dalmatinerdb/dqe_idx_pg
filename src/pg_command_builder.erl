@@ -1,4 +1,4 @@
--module(command_builder).
+-module(pg_command_builder).
 
 -export([touch/1,
          add_metric/6,

@@ -1,4 +1,4 @@
--module(query_builder).
+-module(pg_query_builder).
 
 -export([collections_query/0, metrics_query/1, metrics_query/2, metrics_query/3,
          namespaces_query/1, namespaces_query/2,
