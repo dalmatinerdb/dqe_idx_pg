@@ -62,8 +62,8 @@ touch(Points) ->
     Query = "UPDATE metrics AS m SET"
         "  time_range = tsrange(lower(time_range), p.last_seen) "
         "FROM (VALUES " ++ Values ++ ") as p(bucket, key, last_seen) "
-        "WHERE m.bucket = p.bucket AND m.key = p.key "
-        "AND p.last_seen > upper(time_range)",
+        "WHERE m.bucket = p.bucket AND m.key = p.key AND "
+        "(upper(time_range) = 'infinity' OR p.last_seen > upper(time_range))",
     {ok, Query, Data}.
 
 -spec delete_metric(dqe_idx:collection(),
