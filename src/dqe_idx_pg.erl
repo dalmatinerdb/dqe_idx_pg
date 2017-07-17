@@ -286,6 +286,8 @@ get_tag_value(TagKey, [_ | Rest]) ->
 timeout() ->
     application:get_env(dqe_idx_pg, timeout, ?TIMEOUT).
 
+date_to_ms({{Year, _, _}, _}) when Year < 0 ->
+    0;
 date_to_ms({Date , {H, M, S}}) ->
     GSecs = calendar:datetime_to_gregorian_seconds({Date, {H, M, round(S)}}),
     Secs = GSecs - ?S1970,
