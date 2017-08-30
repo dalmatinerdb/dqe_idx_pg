@@ -249,6 +249,7 @@ lookup_criteria_({'exists', Tag}) ->
     {'?&', [Tag]};
 lookup_criteria_({'!=', Tag, Value}) ->
     {'not', {'@>', [{Tag, Value}]}};
+
 %% containment checks connected by 'and' can be joined to one
 lookup_criteria_({'and', L, R}) ->
     case {lookup_criteria_(L), lookup_criteria_(R)} of
@@ -261,9 +262,23 @@ lookup_criteria_({'and', L, R}) ->
     end;
 %% With 'or' operators we can do much, maybe beside trying to optimize children
 lookup_criteria_({'or', L, R}) ->
-    L1 = lookup_criteria_(L),
-    R1 = lookup_criteria_(R),
-    {'or', L1, R1}.
+    case {lookup_criteria_(L), lookup_criteria_(R)} of
+        %% If we have two singular 'includes' and a or
+        %% we can combine them into a big ore despite them
+        %% being written as 'and' because they only have one element
+        {{'?&', [LTag]}, {'?&', [RTag]}} ->
+            {'?|', [LTag, RTag]};
+        %% We can apply the same logic if one side of the or is a
+        %% `?|` and the other side is a 1 element and
+        {{'?&', [LTag]}, {'?|', RTags}} ->
+            {'?|', [LTag | RTags]};
+        {{'?|', LTags}, {'?&', [RTag]}} ->
+            {'?|', [RTag, LTags]};
+        {{'?|', LTags}, {'?|', RTags}} ->
+            {'?|', LTags ++ RTags};
+        {L1, L2} ->
+            {'or', L1, L2}
+    end.
 %% We can do further improvements using '?&' and '?!' operators once we add
 %% support for tag presence only conditions.
 
