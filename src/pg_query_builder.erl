@@ -245,14 +245,18 @@ lookup_criteria(C) ->
 %% on hstores
 lookup_criteria_({'=', Tag, Value}) ->
     {'@>', [{Tag, Value}]};
+lookup_criteria_({'exists', Tag}) ->
+    {'?&', [Tag]};
 lookup_criteria_({'!=', Tag, Value}) ->
     {'not', {'@>', [{Tag, Value}]}};
 %% containment checks connected by 'and' can be joined to one
 lookup_criteria_({'and', L, R}) ->
     case {lookup_criteria_(L), lookup_criteria_(R)} of
+        {{'?&', LTags}, {'?&', RTags}} ->
+            {'?&', LTags ++ RTags};
         {{'@>', LKVs}, {'@>', RKVs}} ->
             {'@>', LKVs ++ RKVs};
-       {L1, L2} ->
+        {L1, L2} ->
             {'and', L1, L2}
     end;
 %% With 'or' operators we can do much, maybe beside trying to optimize children
@@ -275,8 +279,7 @@ criteria_condition({Op, Parts}, I)
                 '?|' -> "?|"
             end,
     Cond = ["dimensions ", OpStr, " $", i2l(I)],
-    {Tags, _} = lists:unzip(Parts),
-    Keys = lists:map(fun encode_tag/1, Tags),
+    Keys = lists:map(fun encode_tag/1, Parts),
     {Cond, [Keys], I + 1};
 %% joining operators
 criteria_condition({Op, L, R}, I)
